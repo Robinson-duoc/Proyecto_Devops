@@ -1,0 +1,95 @@
+version: '3.9'
+
+services:
+
+  mysql:
+    image: mysql:8.0
+
+    container_name: mysql-db
+
+    restart: always
+
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: innovatech
+
+    ports:
+      - "3306:3306"
+
+    volumes:
+      - mysql_data:/var/lib/mysql
+
+    networks:
+      - app-network
+
+  ventas-service:
+    build:
+      context: ./backend-ventas/Springboot-API-REST
+
+    container_name: ventas-service
+
+    restart: always
+
+    ports:
+      - "8080:8080"
+
+    environment:
+      DB_ENDPOINT: mysql
+      DB_PORT: 3306
+      DB_NAME: innovatech
+      DB_USERNAME: root
+      DB_PASSWORD: root
+
+    depends_on:
+      - mysql
+
+    networks:
+      - app-network
+
+  despacho-service:
+    build:
+      context: ./backend-despacho/Springboot-API-REST-DESPACHO
+
+    container_name: despacho-service
+
+    restart: always
+
+    ports:
+      - "8081:8081"
+
+    environment:
+      DB_ENDPOINT: mysql
+      DB_PORT: 3306
+      DB_NAME: innovatech
+      DB_USERNAME: root
+      DB_PASSWORD: root
+
+    depends_on:
+      - mysql
+
+    networks:
+      - app-network
+
+  frontend:
+    build:
+      context: ./frontend
+
+    container_name: frontend-app
+
+    restart: always
+
+    ports:
+      - "80:80"
+
+    depends_on:
+      - ventas-service
+      - despacho-service
+
+    networks:
+      - app-network
+
+volumes:
+  mysql_data:
+
+networks:
+  app-network:
