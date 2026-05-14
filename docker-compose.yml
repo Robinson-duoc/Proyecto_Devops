@@ -1,12 +1,8 @@
-version: '3.9'
-
 services:
 
   mysql:
     image: mysql:8.0
-
     container_name: mysql-db
-
     restart: always
 
     environment:
@@ -24,10 +20,9 @@ services:
 
   ventas-service:
     build:
-      context: ./backend-ventas/Springboot-API-REST
+      context: ./back-Ventas_SpringBoot/Springboot-API-REST
 
     container_name: ventas-service
-
     restart: always
 
     ports:
@@ -48,10 +43,9 @@ services:
 
   despacho-service:
     build:
-      context: ./backend-despacho/Springboot-API-REST-DESPACHO
+      context: ./back-Despachos_SpringBoot/Springboot-API-REST-DESPACHO
 
     container_name: despacho-service
-
     restart: always
 
     ports:
@@ -75,7 +69,6 @@ services:
       context: ./frontend
 
     container_name: frontend-app
-
     restart: always
 
     ports:
@@ -92,4 +85,4 @@ volumes:
   mysql_data:
 
 networks:
-  app-network:
+  app-network:Ñ
