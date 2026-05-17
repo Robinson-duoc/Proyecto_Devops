@@ -8,7 +8,7 @@ on:
 env:
   AWS_REGION: us-east-1
   CLUSTER: proyecto-devops-cluster
-  SERVICE: app-service
+  SERVICE: proyecto-devops-service # <-- CORRECCIÓN AQUÍ
 
 jobs:
   deploy:

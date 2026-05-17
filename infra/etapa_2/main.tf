@@ -146,6 +146,7 @@ resource "aws_instance" "mysql" {
     volume_type = "gp3"
   }
 
+  # CORRECCIÓN AQUÍ: Volumen de persistencia y DB innovatech
   user_data = <<-EOF
     #!/bin/bash
 
@@ -155,10 +156,13 @@ resource "aws_instance" "mysql" {
     systemctl start docker
     systemctl enable docker
 
+    docker volume create mysql_data
+
     docker run -d \
       --name mysql \
+      -v mysql_data:/var/lib/mysql \
       -e MYSQL_ROOT_PASSWORD=root \
-      -e MYSQL_DATABASE=devopsdb \
+      -e MYSQL_DATABASE=innovatech \
       -p 3306:3306 \
       mysql:8
   EOF
@@ -229,7 +233,7 @@ resource "aws_ecs_task_definition" "app" {
         },
         {
           name  = "DB_NAME"
-          value = "devopsdb"
+          value = "innovatech" # CORRECCIÓN AQUÍ
         },
         {
           name  = "DB_USERNAME"
@@ -275,7 +279,7 @@ resource "aws_ecs_task_definition" "app" {
         },
         {
           name  = "DB_NAME"
-          value = "devopsdb"
+          value = "innovatech" # CORRECCIÓN AQUÍ
         },
         {
           name  = "DB_USERNAME"
