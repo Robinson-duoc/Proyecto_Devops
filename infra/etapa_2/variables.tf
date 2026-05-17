@@ -13,4 +13,5 @@ variable "project_name" {
 variable "key_pair_name" {
   description = "Nombre del Key Pair EC2"
   type        = string
+  default     = "vockey" 
 }
