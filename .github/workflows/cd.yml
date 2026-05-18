@@ -58,9 +58,9 @@ jobs:
           docker push ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/proyecto-devops-frontend:latest
       
       # ==========================================
-      # NUEVO PASO: Auto-crear máquina EC2 (Seguro)
+      # NUEVO PASO: Auto-crear máquina EC2 + MySQL (Seguro)
       # ==========================================
-      - name: Auto-crear Instancia EC2 (Ubuntu t2.micro)
+      - name: Auto-crear Instancia EC2 con MySQL
         run: |
           echo "1. Buscando redes dinámicas para la EC2..."
           DEFAULT_VPC=$(aws ec2 describe-vpcs --filters Name=isDefault,Values=true --query 'Vpcs[0].VpcId' --output text)
@@ -71,7 +71,30 @@ jobs:
           INSTANCE_EXISTS=$(aws ec2 describe-instances --filters "Name=tag:Name,Values=proyecto-devops-servidor" "Name=instance-state-name,Values=running,pending" --query 'Reservations[*].Instances[*].InstanceId' --output text)
 
           if [ -z "$INSTANCE_EXISTS" ]; then
-            echo "3. Lanzando nueva máquina EC2..."
+            echo "3. Generando script de instalación automática (User Data)..."
+            cat << 'EOF' > userdata.sh
+          #!/bin/bash
+          # Actualizar el sistema e instalar Docker
+          apt-get update -y
+          apt-get install -y docker.io
+          systemctl start docker
+          systemctl enable docker
+
+          # Crear volumen para que los datos de MySQL no se borren
+          docker volume create mysql_data
+
+          # Levantar el contenedor de MySQL v8
+          docker run -d \
+            --name mysql \
+            --restart always \
+            -v mysql_data:/var/lib/mysql \
+            -e MYSQL_ROOT_PASSWORD=root \
+            -e MYSQL_DATABASE=innovatech \
+            -p 3306:3306 \
+            mysql:8
+          EOF
+
+            echo "4. Lanzando nueva máquina EC2 con MySQL..."
             aws ec2 run-instances \
               --image-id ami-0c7217cdde317cfec \
               --count 1 \
@@ -79,7 +102,11 @@ jobs:
               --key-name vockey \
               --security-group-ids $SG_ID \
               --subnet-id $SUBNET_1 \
+              --user-data file://userdata.sh \
               --tag-specifications 'ResourceType=instance,Tags=[{Key=Name,Value=proyecto-devops-servidor}]'
+            
+            echo "Esperando 15 segundos a que la EC2 reporte su IP inicial..."
+            sleep 15
           else
             echo "La instancia ya está en ejecución. Omitiendo creación."
           fi
@@ -98,9 +125,12 @@ jobs:
           SUBNET_2=$(aws ec2 describe-subnets --filters Name=vpc-id,Values=$DEFAULT_VPC --query 'Subnets[1].SubnetId' --output text)
           SG_ID=$(aws ec2 describe-security-groups --filters Name=vpc-id,Values=$DEFAULT_VPC Name=group-name,Values=default --query 'SecurityGroups[0].GroupId' --output text)
 
-          echo "3. Generando archivo de Task Definition con el LabRole..."
+          echo "3. Capturando IP de la EC2 y Generando archivo de Task Definition..."
           ACCOUNT_ID=${{ secrets.AWS_ACCOUNT_ID }}
           REGION=${{ env.AWS_REGION }}
+          
+          # Capturamos la IP privada de la máquina EC2 que acabamos de crear o que ya existía
+          EC2_IP=$(aws ec2 describe-instances --filters "Name=tag:Name,Values=proyecto-devops-servidor" "Name=instance-state-name,Values=running,pending" --query 'Reservations[0].Instances[0].PrivateIpAddress' --output text)
           
           cat <<EOF > task-def.json
           {
@@ -116,13 +146,27 @@ jobs:
                 "name": "ventas",
                 "image": "$ACCOUNT_ID.dkr.ecr.$REGION.amazonaws.com/proyecto-devops-ventas:latest",
                 "essential": true,
-                "portMappings": [{"containerPort": 8080}]
+                "portMappings": [{"containerPort": 8080}],
+                "environment": [
+                  {"name": "DB_ENDPOINT", "value": "$EC2_IP"},
+                  {"name": "DB_PORT", "value": "3306"},
+                  {"name": "DB_NAME", "value": "innovatech"},
+                  {"name": "DB_USERNAME", "value": "root"},
+                  {"name": "DB_PASSWORD", "value": "root"}
+                ]
               },
               {
                 "name": "despacho",
                 "image": "$ACCOUNT_ID.dkr.ecr.$REGION.amazonaws.com/proyecto-devops-despacho:latest",
                 "essential": true,
-                "portMappings": [{"containerPort": 8081}]
+                "portMappings": [{"containerPort": 8081}],
+                "environment": [
+                  {"name": "DB_ENDPOINT", "value": "$EC2_IP"},
+                  {"name": "DB_PORT", "value": "3306"},
+                  {"name": "DB_NAME", "value": "innovatech"},
+                  {"name": "DB_USERNAME", "value": "root"},
+                  {"name": "DB_PASSWORD", "value": "root"}
+                ]
               },
               {
                 "name": "frontend",
