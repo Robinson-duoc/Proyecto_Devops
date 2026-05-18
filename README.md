@@ -51,10 +51,10 @@ Ingresar credenciales de AWS
 - Al ingresar a la cosola de AWS se vera el resultado
 3. Inicializa Terraform
 `Autenticar AWS`
-Ingresar credenciales de AWS
+- Ingresar credenciales de AWS
 `|Bash|`
 terraform init -upgrade
-Verifica el plan de infraestructura:
+- Verifica el plan de infraestructura:
 
 `|Bash|`
 terraform plan
