@@ -58,6 +58,33 @@ jobs:
           docker push ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/proyecto-devops-frontend:latest
       
       # ==========================================
+      # NUEVO PASO: Auto-crear máquina EC2 (Seguro)
+      # ==========================================
+      - name: Auto-crear Instancia EC2 (Ubuntu t2.micro)
+        run: |
+          echo "1. Buscando redes dinámicas para la EC2..."
+          DEFAULT_VPC=$(aws ec2 describe-vpcs --filters Name=isDefault,Values=true --query 'Vpcs[0].VpcId' --output text)
+          SUBNET_1=$(aws ec2 describe-subnets --filters Name=vpc-id,Values=$DEFAULT_VPC --query 'Subnets[0].SubnetId' --output text)
+          SG_ID=$(aws ec2 describe-security-groups --filters Name=vpc-id,Values=$DEFAULT_VPC Name=group-name,Values=default --query 'SecurityGroups[0].GroupId' --output text)
+
+          echo "2. Verificando si ya existe la instancia para no duplicarla..."
+          INSTANCE_EXISTS=$(aws ec2 describe-instances --filters "Name=tag:Name,Values=proyecto-devops-servidor" "Name=instance-state-name,Values=running,pending" --query 'Reservations[*].Instances[*].InstanceId' --output text)
+
+          if [ -z "$INSTANCE_EXISTS" ]; then
+            echo "3. Lanzando nueva máquina EC2..."
+            aws ec2 run-instances \
+              --image-id ami-0c7217cdde317cfec \
+              --count 1 \
+              --instance-type t2.micro \
+              --key-name vockey \
+              --security-group-ids $SG_ID \
+              --subnet-id $SUBNET_1 \
+              --tag-specifications 'ResourceType=instance,Tags=[{Key=Name,Value=proyecto-devops-servidor}]'
+          else
+            echo "La instancia ya está en ejecución. Omitiendo creación."
+          fi
+
+      # ==========================================
       # EL MODO DIOS: Auto-crear TODO en AWS ECS
       # ==========================================
       - name: Auto-crear Infraestructura ECS (Cluster, Task, Service)
