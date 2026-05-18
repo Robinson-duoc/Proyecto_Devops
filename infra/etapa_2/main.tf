@@ -35,8 +35,22 @@ resource "aws_subnet" "public" {
   }
 }
 
+resource "aws_subnet" "private" {
+  vpc_id            = aws_vpc.main.id
+  cidr_block        = "10.0.2.0/24"
+  availability_zone = "${var.aws_region}b"
+
+  tags = {
+    Name = "${var.project_name}-private-subnet"
+  }
+}
+
 resource "aws_internet_gateway" "main" {
   vpc_id = aws_vpc.main.id
+  
+  tags = {
+    Name = "${var.project_name}-igw"
+  }
 }
 
 resource "aws_route_table" "public" {
@@ -46,6 +60,10 @@ resource "aws_route_table" "public" {
     cidr_block = "0.0.0.0/0"
     gateway_id = aws_internet_gateway.main.id
   }
+
+  tags = {
+    Name = "${var.project_name}-public-rt"
+  }
 }
 
 resource "aws_route_table_association" "public" {
@@ -54,7 +72,7 @@ resource "aws_route_table_association" "public" {
 }
 
 ############################
-# SECURITY GROUP
+# SECURITY GROUPS
 ############################
 
 resource "aws_security_group" "main" {
@@ -99,6 +117,34 @@ resource "aws_security_group" "main" {
     protocol    = "-1"
     cidr_blocks = ["0.0.0.0/0"]
   }
+
+  tags = {
+    Name = "${var.project_name}-sg"
+  }
+}
+
+resource "aws_security_group" "rds" {
+  name   = "${var.project_name}-rds-sg"
+  vpc_id = aws_vpc.main.id
+
+  ingress {
+    description       = "MySQL from ECS"
+    from_port         = 3306
+    to_port           = 3306
+    protocol          = "tcp"
+    security_groups   = [aws_security_group.main.id]
+  }
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  tags = {
+    Name = "${var.project_name}-rds-sg"
+  }
 }
 
 ############################
@@ -108,68 +154,71 @@ resource "aws_security_group" "main" {
 resource "aws_ecr_repository" "ventas" {
   name         = "${var.project_name}-ventas"
   force_delete = true
+
+  tags = {
+    Name = "${var.project_name}-ventas"
+  }
 }
 
 resource "aws_ecr_repository" "despacho" {
   name         = "${var.project_name}-despacho"
   force_delete = true
+
+  tags = {
+    Name = "${var.project_name}-despacho"
+  }
 }
 
 resource "aws_ecr_repository" "frontend" {
   name         = "${var.project_name}-frontend"
   force_delete = true
-}
-
-############################
-# MYSQL EC2
-############################
-
-data "aws_ami" "amazon_linux" {
-  most_recent = true
-  owners      = ["amazon"]
-
-  filter {
-    name   = "name"
-    values = ["al2023-ami-*-x86_64"]
-  }
-}
-
-resource "aws_instance" "mysql" {
-  ami                    = data.aws_ami.amazon_linux.id
-  instance_type          = "t3.micro"
-  subnet_id              = aws_subnet.public.id
-  vpc_security_group_ids = [aws_security_group.main.id]
-  key_name               = var.key_pair_name
-
-  root_block_device {
-    volume_size = 20
-    volume_type = "gp3"
-  }
-
-  # CORRECCIÓN AQUÍ: Volumen de persistencia y DB innovatech
-  user_data = <<-EOF
-    #!/bin/bash
-
-    yum update -y
-    yum install docker -y
-
-    systemctl start docker
-    systemctl enable docker
-
-    docker volume create mysql_data
-
-    docker run -d \
-      --name mysql \
-      -v mysql_data:/var/lib/mysql \
-      -e MYSQL_ROOT_PASSWORD=root \
-      -e MYSQL_DATABASE=innovatech \
-      -p 3306:3306 \
-      mysql:8
-  EOF
 
   tags = {
-    Name = "${var.project_name}-mysql"
+    Name = "${var.project_name}-frontend"
   }
+}
+
+############################
+# RDS MYSQL (OPTIMIZADO PARA t2.micro)
+############################
+
+resource "aws_db_subnet_group" "main" {
+  name       = "${var.project_name}-db-subnet-group"
+  subnet_ids = [aws_subnet.private.id, aws_subnet.public.id]
+
+  tags = {
+    Name = "${var.project_name}-db-subnet-group"
+  }
+}
+
+resource "aws_db_instance" "mysql" {
+  identifier             = "${var.project_name}-db"
+  engine                 = "mysql"
+  engine_version         = "8.0.35"
+  instance_class         = "db.t2.micro"
+  allocated_storage      = 20
+  storage_type           = "gp2"
+  
+  db_name  = "innovatech"
+  username = "root"
+  password = "root"
+
+  db_subnet_group_name   = aws_db_subnet_group.main.name
+  vpc_security_group_ids = [aws_security_group.rds.id]
+
+  skip_final_snapshot       = true
+  publicly_accessible       = false
+  multi_az                  = false
+  backup_retention_period   = 0
+  storage_encrypted         = false
+  deletion_protection       = false
+  copy_tags_to_snapshot     = false
+
+  tags = {
+    Name = "${var.project_name}-db"
+  }
+
+  depends_on = [aws_security_group.rds]
 }
 
 ############################
@@ -179,22 +228,39 @@ resource "aws_instance" "mysql" {
 resource "aws_cloudwatch_log_group" "ecs" {
   name              = "/ecs/${var.project_name}"
   retention_in_days = 7
+
+  tags = {
+    Name = "${var.project_name}-logs"
+  }
 }
 
 ############################
-# ECS
+# ECS CLUSTER
 ############################
 
 resource "aws_ecs_cluster" "main" {
   name = "${var.project_name}-cluster"
+
+  setting {
+    name  = "containerInsights"
+    value = "disabled"
+  }
+
+  tags = {
+    Name = "${var.project_name}-cluster"
+  }
 }
+
+############################
+# IAM ROLE (USANDO LabRole DE AWS ACADEMY)
+############################
 
 data "aws_iam_role" "lab" {
   name = "LabRole"
 }
 
 ############################
-# TASK DEFINITION
+# TASK DEFINITION (OPTIMIZADO t2.micro)
 ############################
 
 resource "aws_ecs_task_definition" "app" {
@@ -202,8 +268,9 @@ resource "aws_ecs_task_definition" "app" {
   network_mode             = "awsvpc"
   requires_compatibilities = ["FARGATE"]
 
-  cpu    = "1024"
-  memory = "2048"
+  # REDUCIDO PARA t2.micro: CPU 256 en lugar de 1024
+  cpu    = "256"
+  memory = "512"
 
   execution_role_arn = data.aws_iam_role.lab.arn
 
@@ -225,7 +292,7 @@ resource "aws_ecs_task_definition" "app" {
       environment = [
         {
           name  = "DB_ENDPOINT"
-          value = aws_instance.mysql.private_ip
+          value = aws_db_instance.mysql.address
         },
         {
           name  = "DB_PORT"
@@ -233,7 +300,7 @@ resource "aws_ecs_task_definition" "app" {
         },
         {
           name  = "DB_NAME"
-          value = "innovatech" # CORRECCIÓN AQUÍ
+          value = "innovatech"
         },
         {
           name  = "DB_USERNAME"
@@ -246,11 +313,11 @@ resource "aws_ecs_task_definition" "app" {
       ]
 
       logConfiguration = {
-        logDriver = "awslogs",
+        logDriver = "awslogs"
         options = {
-          awslogs-group         = aws_cloudwatch_log_group.ecs.name,
-          awslogs-region        = var.aws_region,
-          awslogs-stream-prefix = "ventas"
+          "awslogs-group"         = aws_cloudwatch_log_group.ecs.name
+          "awslogs-region"        = var.aws_region
+          "awslogs-stream-prefix" = "ventas"
         }
       }
     },
@@ -271,7 +338,7 @@ resource "aws_ecs_task_definition" "app" {
       environment = [
         {
           name  = "DB_ENDPOINT"
-          value = aws_instance.mysql.private_ip
+          value = aws_db_instance.mysql.address
         },
         {
           name  = "DB_PORT"
@@ -279,7 +346,7 @@ resource "aws_ecs_task_definition" "app" {
         },
         {
           name  = "DB_NAME"
-          value = "innovatech" # CORRECCIÓN AQUÍ
+          value = "innovatech"
         },
         {
           name  = "DB_USERNAME"
@@ -292,11 +359,11 @@ resource "aws_ecs_task_definition" "app" {
       ]
 
       logConfiguration = {
-        logDriver = "awslogs",
+        logDriver = "awslogs"
         options = {
-          awslogs-group         = aws_cloudwatch_log_group.ecs.name,
-          awslogs-region        = var.aws_region,
-          awslogs-stream-prefix = "despacho"
+          "awslogs-group"         = aws_cloudwatch_log_group.ecs.name
+          "awslogs-region"        = var.aws_region
+          "awslogs-stream-prefix" = "despacho"
         }
       }
     },
@@ -314,28 +381,30 @@ resource "aws_ecs_task_definition" "app" {
         }
       ]
 
-      dependsOn = [
+      environment = [
         {
-          containerName = "ventas-service"
-          condition     = "START"
+          name  = "REACT_APP_API_VENTAS"
+          value = "http://localhost:8080"
         },
         {
-          containerName = "despacho-service"
-          condition     = "START"
+          name  = "REACT_APP_API_DESPACHO"
+          value = "http://localhost:8081"
         }
       ]
 
       logConfiguration = {
-        logDriver = "awslogs",
+        logDriver = "awslogs"
         options = {
-          awslogs-group         = aws_cloudwatch_log_group.ecs.name,
-          awslogs-region        = var.aws_region,
-          awslogs-stream-prefix = "frontend"
+          "awslogs-group"         = aws_cloudwatch_log_group.ecs.name
+          "awslogs-region"        = var.aws_region
+          "awslogs-stream-prefix" = "frontend"
         }
       }
     }
 
   ])
+
+  depends_on = [aws_db_instance.mysql]
 }
 
 ############################
@@ -357,4 +426,10 @@ resource "aws_ecs_service" "app" {
   }
 
   force_new_deployment = true
+
+  tags = {
+    Name = "${var.project_name}-service"
+  }
+
+  depends_on = [aws_ecs_cluster.main]
 }
