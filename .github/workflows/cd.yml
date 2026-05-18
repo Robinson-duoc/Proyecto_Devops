@@ -23,22 +23,18 @@ jobs:
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }} # Crucial para AWS Academy
           aws-region: ${{ env.AWS_REGION }}
       
       - name: Login en ECR
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
       
-      # ==========================================
-      # NUEVO PASO: Auto-crear repositorios en ECR
-      # ==========================================
       - name: Crear repositorios en ECR si no existen
         run: |
           aws ecr describe-repositories --repository-names proyecto-devops-ventas || aws ecr create-repository --repository-name proyecto-devops-ventas
           aws ecr describe-repositories --repository-names proyecto-devops-despacho || aws ecr create-repository --repository-name proyecto-devops-despacho
           aws ecr describe-repositories --repository-names proyecto-devops-frontend || aws ecr create-repository --repository-name proyecto-devops-frontend
-      # ==========================================
       
       - name: Build y Push - Ventas Service
         run: |
@@ -61,6 +57,69 @@ jobs:
             ./frontend
           docker push ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/proyecto-devops-frontend:latest
       
+      # ==========================================
+      # EL MODO DIOS: Auto-crear TODO en AWS ECS
+      # ==========================================
+      - name: Auto-crear Infraestructura ECS (Cluster, Task, Service)
+        run: |
+          echo "1. Creando Clúster..."
+          aws ecs create-cluster --cluster-name ${{ env.CLUSTER }}
+
+          echo "2. Buscando redes dinámicas de AWS Academy..."
+          DEFAULT_VPC=$(aws ec2 describe-vpcs --filters Name=isDefault,Values=true --query 'Vpcs[0].VpcId' --output text)
+          SUBNET_1=$(aws ec2 describe-subnets --filters Name=vpc-id,Values=$DEFAULT_VPC --query 'Subnets[0].SubnetId' --output text)
+          SUBNET_2=$(aws ec2 describe-subnets --filters Name=vpc-id,Values=$DEFAULT_VPC --query 'Subnets[1].SubnetId' --output text)
+          SG_ID=$(aws ec2 describe-security-groups --filters Name=vpc-id,Values=$DEFAULT_VPC Name=group-name,Values=default --query 'SecurityGroups[0].GroupId' --output text)
+
+          echo "3. Generando archivo de Task Definition con el LabRole..."
+          ACCOUNT_ID=${{ secrets.AWS_ACCOUNT_ID }}
+          REGION=${{ env.AWS_REGION }}
+          
+          cat <<EOF > task-def.json
+          {
+            "family": "proyecto-devops-task",
+            "executionRoleArn": "arn:aws:iam::$ACCOUNT_ID:role/LabRole",
+            "taskRoleArn": "arn:aws:iam::$ACCOUNT_ID:role/LabRole",
+            "networkMode": "awsvpc",
+            "requiresCompatibilities": ["FARGATE"],
+            "cpu": "1024",
+            "memory": "3072",
+            "containerDefinitions": [
+              {
+                "name": "ventas",
+                "image": "$ACCOUNT_ID.dkr.ecr.$REGION.amazonaws.com/proyecto-devops-ventas:latest",
+                "essential": true,
+                "portMappings": [{"containerPort": 8080}]
+              },
+              {
+                "name": "despacho",
+                "image": "$ACCOUNT_ID.dkr.ecr.$REGION.amazonaws.com/proyecto-devops-despacho:latest",
+                "essential": true,
+                "portMappings": [{"containerPort": 8081}]
+              },
+              {
+                "name": "frontend",
+                "image": "$ACCOUNT_ID.dkr.ecr.$REGION.amazonaws.com/proyecto-devops-frontend:latest",
+                "essential": true,
+                "portMappings": [{"containerPort": 3000}]
+              }
+            ]
+          }
+          EOF
+          
+          echo "4. Registrando la Definición en AWS..."
+          aws ecs register-task-definition --cli-input-json file://task-def.json
+
+          echo "5. Creando el Servicio (Si ya existe, ignorará el error)..."
+          aws ecs create-service \
+            --cluster ${{ env.CLUSTER }} \
+            --service-name ${{ env.SERVICE }} \
+            --task-definition proyecto-devops-task \
+            --desired-count 1 \
+            --launch-type FARGATE \
+            --network-configuration "awsvpcConfiguration={subnets=[$SUBNET_1,$SUBNET_2],securityGroups=[$SG_ID],assignPublicIp=ENABLED}" || true
+      # ==========================================
+
       - name: Forzar redespliegue en AWS ECS (Sidecar)
         run: |
           aws ecs update-service \
