@@ -40,12 +40,18 @@ proyecto_aws_ecommerce/
 
 - Versión del provider Time: hashicorp/time
 
-## Flujo de uso
+## Flujo de uso manual
 
 1. Clona el repositorio y ubícate en la carpeta del proyecto.
-
-2. Inicializa Terraform (descargará los providers de AWS y Time):
-
+2. Inicializa GitHub
+- `Autenticar AWS`
+Ingresar credenciales de AWS
+- Con el repositorio listo, realice un commit
+- Desde GitHub podra inicializarse dentro de Actions, allí se vera como inicia poco a poco
+- Al ingresar a la cosola de AWS se vera el resultado
+3. Inicializa Terraform
+`Autenticar AWS`
+Ingresar credenciales de AWS
 `|Bash|`
 terraform init -upgrade
 Verifica el plan de infraestructura:
@@ -56,11 +62,8 @@ terraform plan
 
 `|Bash|`
 terraform apply -auto-approve
-- Subir imágenes (Paso Manual Crucial): Una vez que Terraform termine, debes autenticar tu Docker y subir las imágenes a los repositorios ECR recién creados:
+- Subir imágenes (Paso Manual Crucial): Una vez que Terraform termine, se puede
 
-Bash
-# 1. Autenticar Docker con AWS
-aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin <TU_ACCOUNT_ID>.dkr.ecr.us-east-1.amazonaws.com
 
 
 ## ¿Qué despliega este proyecto?
