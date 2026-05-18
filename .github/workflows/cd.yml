@@ -8,7 +8,7 @@ on:
 env:
   AWS_REGION: us-east-1
   CLUSTER: proyecto-devops-cluster
-  SERVICE: proyecto-devops-service # <-- CORRECCIÓN AQUÍ
+  SERVICE: proyecto-devops-service
 
 jobs:
   deploy:
@@ -18,18 +18,27 @@ jobs:
       - name: Checkout del código
         uses: actions/checkout@v3
 
-      - name: Configurar las credenciales de AWS
+      - name: Configurar credenciales de AWS
         uses: aws-actions/configure-aws-credentials@v2
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
           aws-region: ${{ env.AWS_REGION }}
-      
+
       - name: Login en ECR
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
-      
+
+      # ✅ NUEVO: Crear repositorios ECR si no existen
+      - name: Crear repositorios ECR (si no existen)
+        run: |
+          for REPO in proyecto-devops-ventas proyecto-devops-despacho proyecto-devops-frontend; do
+            aws ecr describe-repositories --repository-names $REPO --region ${{ env.AWS_REGION }} 2>/dev/null || \
+            aws ecr create-repository --repository-name $REPO --region ${{ env.AWS_REGION }}
+            echo "✅ Repositorio $REPO listo"
+          done
+
       - name: Build y Push - Ventas Service
         run: |
           docker build --platform linux/amd64 \
@@ -50,8 +59,8 @@ jobs:
             -t ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/proyecto-devops-frontend:latest \
             ./frontend
           docker push ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/proyecto-devops-frontend:latest
-      
-      - name: Forzar redespliegue en AWS ECS (Sidecar)
+
+      - name: Forzar redespliegue en AWS ECS
         run: |
           aws ecs update-service \
             --cluster ${{ env.CLUSTER }} \
