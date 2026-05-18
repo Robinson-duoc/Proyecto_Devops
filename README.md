@@ -15,7 +15,7 @@ Infraestructura gestionada con Terraform para desplegar una arquitectura de micr
 - Temporizador de sincronización (time_sleep) para evitar fallos por conexiones tempranas a la base de datos.
 
 ## Estructura del proyecto
-
+```
 Plaintext
 proyecto_aws_ecommerce/
 ├── main.tf (VPC, EC2, ECS, ECR, Temporizador)
@@ -28,6 +28,7 @@ proyecto_aws_ecommerce/
 ├── frontend/
 │   └── Dockerfile
 └── README.md
+```
 ## Requisitos
 - Terraform CLI versión >= 1.0
 
