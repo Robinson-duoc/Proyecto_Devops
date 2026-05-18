@@ -30,6 +30,16 @@ jobs:
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
       
+      # ==========================================
+      # NUEVO PASO: Auto-crear repositorios en ECR
+      # ==========================================
+      - name: Crear repositorios en ECR si no existen
+        run: |
+          aws ecr describe-repositories --repository-names proyecto-devops-ventas || aws ecr create-repository --repository-name proyecto-devops-ventas
+          aws ecr describe-repositories --repository-names proyecto-devops-despacho || aws ecr create-repository --repository-name proyecto-devops-despacho
+          aws ecr describe-repositories --repository-names proyecto-devops-frontend || aws ecr create-repository --repository-name proyecto-devops-frontend
+      # ==========================================
+      
       - name: Build y Push - Ventas Service
         run: |
           docker build --platform linux/amd64 \
@@ -51,7 +61,7 @@ jobs:
             ./frontend
           docker push ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/proyecto-devops-frontend:latest
       
-      - name: Forzar redespliegue en AWS ECS
+      - name: Forzar redespliegue en AWS ECS (Sidecar)
         run: |
           aws ecs update-service \
             --cluster ${{ env.CLUSTER }} \
