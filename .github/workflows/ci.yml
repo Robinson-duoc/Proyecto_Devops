@@ -62,9 +62,8 @@ jobs:
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
         run: |
-          # Aseguramos que el nombre termine en "-backend-ventas"
-          docker build -t $ECR_REGISTRY/${{ env.PROJECT_NAME }}-backend-ventas:latest .
-          docker push $ECR_REGISTRY/${{ env.PROJECT_NAME }}-backend-ventas:latest
+          docker build -t $ECR_REGISTRY/${{ env.PROJECT_NAME }}-backend:latest .
+          docker push $ECR_REGISTRY/${{ env.PROJECT_NAME }}-backend:latest
 
   build-backend-despacho:
     name: Build Backend Despacho
