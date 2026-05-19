@@ -269,27 +269,19 @@ resource "aws_ecs_task_definition" "app" {
       ]
 
       environment = [
-        {
-          name  = "DB_ENDPOINT"
-          value = aws_instance.mysql.private_ip
-        },
-        {
-          name  = "DB_PORT"
-          value = "3306"
-        },
-        {
-          name  = "DB_NAME"
-          value = "innovatech" # CORRECCIÓN AQUÍ
-        },
-        {
-          name  = "DB_USERNAME"
-          value = "root"
-        },
-        {
-          name  = "DB_PASSWORD"
-          value = "root"
-        }
-      ]
+  {
+    name  = "SPRING_DATASOURCE_URL"
+    value = "jdbc:mysql://${aws_instance.mysql.private_ip}:3306/innovatech"
+  },
+  {
+    name  = "SPRING_DATASOURCE_USERNAME"
+    value = "root"
+  },
+  {
+    name  = "SPRING_DATASOURCE_PASSWORD"
+    value = "root"
+  }
+]
 
       logConfiguration = {
         logDriver = "awslogs",
