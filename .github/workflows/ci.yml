@@ -30,7 +30,7 @@ jobs:
         uses: aws-actions/amazon-ecr-login@v2
 
       - name: Build y Push Frontend
-        working-directory: front_despacho
+        working-directory: frontend
         run: |
           docker build -t $ECR_URL/innovatech-spa-frontend:latest .
           docker push $ECR_URL/innovatech-spa-frontend:latest
@@ -54,7 +54,7 @@ jobs:
         uses: aws-actions/amazon-ecr-login@v2
 
       - name: Build y Push Backend Ventas
-        working-directory: backend/Springboot-API-REST-VENTAS
+        working-directory: back-Ventas_SpringBoot
         run: |
           docker build -t $ECR_URL/innovatech-spa-backend:latest .
           docker push $ECR_URL/innovatech-spa-backend:latest
@@ -78,7 +78,7 @@ jobs:
         uses: aws-actions/amazon-ecr-login@v2
 
       - name: Build y Push Backend Despacho
-        working-directory: backend/Springboot-API-REST-DESPACHO
+        working-directory: back-Despachos_SpringBoot
         run: |
           docker build -t $ECR_URL/innovatech-spa-backend-despacho:latest .
           docker push $ECR_URL/innovatech-spa-backend-despacho:latest
