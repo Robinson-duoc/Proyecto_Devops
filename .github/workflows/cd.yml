@@ -10,14 +10,13 @@ on:
 
 env:
   AWS_REGION: us-east-1
-  PROJECT_NAME: innovatech
+  ECS_CLUSTER: innovatech-spa-cluster
 
 jobs:
   deploy:
     name: Deploy a ECS
     runs-on: ubuntu-latest
     if: ${{ github.event.workflow_run.conclusion == 'success' }}
-    
     steps:
       - name: Configurar credenciales AWS
         uses: aws-actions/configure-aws-credentials@v4
@@ -27,34 +26,26 @@ jobs:
           aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
           aws-region: ${{ env.AWS_REGION }}
 
+      - name: Deploy Frontend
+        run: |
+          aws ecs update-service \
+            --cluster $ECS_CLUSTER \
+            --service innovatech-spa-frontend-service \
+            --force-new-deployment \
+            --region $AWS_REGION
+
       - name: Deploy Backend Ventas
         run: |
           aws ecs update-service \
-            --cluster ${{ env.PROJECT_NAME }}-cluster \
-            --service ${{ env.PROJECT_NAME }}-backend-ventas-service \
+            --cluster $ECS_CLUSTER \
+            --service innovatech-spa-backend-ventas-service \
             --force-new-deployment \
-            --region ${{ env.AWS_REGION }}
+            --region $AWS_REGION
 
       - name: Deploy Backend Despacho
         run: |
           aws ecs update-service \
-            --cluster ${{ env.PROJECT_NAME }}-cluster \
-            --service ${{ env.PROJECT_NAME }}-backend-despacho-service \
+            --cluster $ECS_CLUSTER \
+            --service innovatech-spa-backend-despacho-service \
             --force-new-deployment \
-            --region ${{ env.AWS_REGION }}
-
-      - name: Deploy Frontend
-        run: |
-          aws ecs update-service \
-            --cluster ${{ env.PROJECT_NAME }}-cluster \
-            --service ${{ env.PROJECT_NAME }}-frontend-service \
-            --force-new-deployment \
-            --region ${{ env.AWS_REGION }}
-
-      - name: Esperar a que los servicios estén estables
-        run: |
-          echo "Esperando a que los nuevos contenedores se levanten y pasen los Health Checks..."
-          aws ecs wait services-stable \
-            --cluster ${{ env.PROJECT_NAME }}-cluster \
-            --services ${{ env.PROJECT_NAME }}-backend-ventas-service ${{ env.PROJECT_NAME }}-backend-despacho-service ${{ env.PROJECT_NAME }}-frontend-service \
-            --region ${{ env.AWS_REGION }}
+            --region $AWS_REGION
