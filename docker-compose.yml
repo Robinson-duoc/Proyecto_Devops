@@ -1,0 +1,97 @@
+services:
+  mysql-despachos:
+    image: mysql:8
+    container_name: innovatech-mysql-despachos
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+    ports:
+      - "3307:3306"
+    volumes:
+      - mysql_despachos_data:/var/lib/mysql
+    networks:
+      - innovatech-net
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-p${MYSQL_ROOT_PASSWORD}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  mysql-ventas:
+    image: mysql:8
+    container_name: innovatech-mysql-ventas
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+    ports:
+      - "3308:3306"
+    volumes:
+      - mysql_ventas_data:/var/lib/mysql
+    networks:
+      - innovatech-net
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-p${MYSQL_ROOT_PASSWORD}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend-despachos:
+    build: ./backend/Springboot-API-REST-DESPACHO
+    image: innovatech-backend-despachos:1.0
+    container_name: innovatech-backend-despachos
+    restart: always
+    ports:
+      - "9090:8080"
+    environment:
+      DB_HOST: mysql-despachos
+      DB_PORT: 3306
+      DB_NAME: ${MYSQL_DATABASE}
+      DB_USERNAME: root
+      DB_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+    depends_on:
+      mysql-despachos:
+        condition: service_healthy
+    networks:
+      - innovatech-net
+
+  backend-ventas:
+    build: ./backend/Springboot-API-REST-VENTAS
+    image: innovatech-backend-ventas:1.0
+    container_name: innovatech-backend-ventas
+    restart: always
+    ports:
+      - "9091:8080"
+    environment:
+      DB_HOST: mysql-ventas
+      DB_PORT: 3306
+      DB_NAME: ${MYSQL_DATABASE}
+      DB_USERNAME: root
+      DB_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+    depends_on:
+      mysql-ventas:
+        condition: service_healthy
+    networks:
+      - innovatech-net
+
+  frontend:
+    build: ./front_despacho
+    image: innovatech-frontend:1.0
+    container_name: innovatech-frontend
+    restart: always
+    ports:
+      - "8080:80"
+    depends_on:
+      - backend-despachos
+      - backend-ventas
+    networks:
+      - innovatech-net
+
+volumes:
+  mysql_despachos_data:
+  mysql_ventas_data:
+
+networks:
+  innovatech-net:
+    driver: bridge
