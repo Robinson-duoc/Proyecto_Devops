@@ -45,13 +45,23 @@ proyecto_aws_ecommerce/
 1. Clona el repositorio y ubícate en la carpeta del proyecto.
 2. Inicializa GitHub
 - `Autenticar AWS`
-Ingresar credenciales de AWS
+Ingresar credenciales de AWS en secrets:
+```
+aws_access_key_id=
+aws_secret_access_key=
+aws_session_token=
+```
 - Con el repositorio listo, realice un commit
 - Desde GitHub podra inicializarse dentro de Actions, allí se vera como inicia poco a poco
 - Al ingresar a la cosola de AWS se vera el resultado
 3. Inicializa Terraform
 `Autenticar AWS`
 - Ingresar credenciales de AWS:
+```
+export aws_access_key_id=
+export aws_secret_access_key=
+export aws_session_token=
+```
 
 `|Bash|`
 terraform init -upgrade
