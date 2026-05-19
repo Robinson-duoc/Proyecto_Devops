@@ -3,13 +3,14 @@ FROM maven:3.8.5-openjdk-17-slim AS build
 WORKDIR /app
 COPY pom.xml .
 COPY src ./src
-RUN mvc clean package -DskipTests
+# CORREGIDO: Era mvn, no mvc
+RUN mvn clean package -DskipTests
 
-# Etapa 2: Imagen ligera para correr la aplicación
-FROM openjdk:17-jdk-slim
+# Etapa 2: Imagen oficial y moderna para correr la aplicación (Eclipse Temurin)
+FROM eclipse-temurin:17-jdk
 WORKDIR /app
 
-# INSTALACIÓN DE NETCAT (Obligatorio para el script de espera)
+# INSTALACIÓN DE NETCAT ( eclipse-temurin usa Ubuntu por debajo, así que apt-get funciona perfecto )
 RUN apt-get update && \
     apt-get install -y netcat && \
     rm -rf /var/lib/apt/lists/*
