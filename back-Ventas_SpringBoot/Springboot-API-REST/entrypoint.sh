@@ -1,18 +1,13 @@
 #!/bin/sh
 
-echo "===================================================="
-echo "Buscando MySQL en $DB_ENDPOINT:3306..."
-echo "===================================================="
+echo "Esperando MySQL en $DB_HOST:3306..."
 
-# Bucle de espera activa usando netcat (nc)
-until nc -z -v -w5 $DB_ENDPOINT 3306; do
-  echo "MySQL aún no responde. Reintentando en 3 segundos..."
+# Espera activa
+until nc -z $DB_HOST 3306; do
+  echo "MySQL no disponible aún..."
   sleep 3
 done
 
-echo "===================================================="
-echo "¡Conexión exitosa! MySQL está listo. Iniciando App..."
-echo "===================================================="
+echo "MySQL disponible, iniciando backend..."
 
-# Ejecuta la aplicación Java reemplazando el proceso del shell (Práctica DevOps)
-exec java -jar app.jar
+java -jar app.jar

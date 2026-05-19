@@ -1,210 +1,51 @@
-name: Despliegue en AWS - Innovatech
+name: CD - Deploy a ECS
 
 on:
-  push:
+  workflow_run:
+    workflows: ["CI - Build y Push a ECR"]
+    types:
+      - completed
     branches:
-      - deploy
+      - main
 
 env:
   AWS_REGION: us-east-1
-  CLUSTER: proyecto-devops-cluster
-  SERVICE: proyecto-devops-service
+  ECS_CLUSTER: innovatech-spa-cluster
 
 jobs:
   deploy:
+    name: Deploy a ECS
     runs-on: ubuntu-latest
-
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
     steps:
-      - name: Checkout del código
-        uses: actions/checkout@v3
-
-      - name: Configurar las credenciales de AWS
-        uses: aws-actions/configure-aws-credentials@v2
+      - name: Configurar credenciales AWS
+        uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }} # Crucial para AWS Academy
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
           aws-region: ${{ env.AWS_REGION }}
-      
-      - name: Login en ECR
-        id: login-ecr
-        uses: aws-actions/amazon-ecr-login@v2
-      
-      - name: Crear repositorios en ECR si no existen
-        run: |
-          aws ecr describe-repositories --repository-names proyecto-devops-ventas || aws ecr create-repository --repository-name proyecto-devops-ventas
-          aws ecr describe-repositories --repository-names proyecto-devops-despacho || aws ecr create-repository --repository-name proyecto-devops-despacho
-          aws ecr describe-repositories --repository-names proyecto-devops-frontend || aws ecr create-repository --repository-name proyecto-devops-frontend
-      
-      - name: Build y Push - Ventas Service
-        run: |
-          docker build --platform linux/amd64 \
-            -t ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/proyecto-devops-ventas:latest \
-            ./back-Ventas_SpringBoot/Springboot-API-REST
-          docker push ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/proyecto-devops-ventas:latest
 
-      - name: Build y Push - Despacho Service
-        run: |
-          docker build --platform linux/amd64 \
-            -t ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/proyecto-devops-despacho:latest \
-            ./back-Despachos_SpringBoot/Springboot-API-REST-DESPACHO
-          docker push ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/proyecto-devops-despacho:latest
-
-      - name: Build y Push - Frontend
-        run: |
-          docker build --platform linux/amd64 \
-            -t ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/proyecto-devops-frontend:latest \
-            ./frontend
-          docker push ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/proyecto-devops-frontend:latest
-      
-      # ==========================================
-      # NUEVO PASO: Auto-crear máquina EC2 + MySQL (Seguro)
-      # ==========================================
-      - name: Auto-crear Instancia EC2 con MySQL
-        run: |
-          echo "1. Buscando redes dinámicas para la EC2..."
-          DEFAULT_VPC=$(aws ec2 describe-vpcs --filters Name=isDefault,Values=true --query 'Vpcs[0].VpcId' --output text)
-          SUBNET_1=$(aws ec2 describe-subnets --filters Name=vpc-id,Values=$DEFAULT_VPC --query 'Subnets[0].SubnetId' --output text)
-          SG_ID=$(aws ec2 describe-security-groups --filters Name=vpc-id,Values=$DEFAULT_VPC Name=group-name,Values=default --query 'SecurityGroups[0].GroupId' --output text)
-
-          echo "2. Verificando si ya existe la instancia para no duplicarla..."
-          INSTANCE_EXISTS=$(aws ec2 describe-instances --filters "Name=tag:Name,Values=proyecto-devops-servidor" "Name=instance-state-name,Values=running,pending" --query 'Reservations[*].Instances[*].InstanceId' --output text)
-
-          if [ -z "$INSTANCE_EXISTS" ]; then
-            echo "3. Generando script de instalación automática (User Data)..."
-            cat << 'EOF' > userdata.sh
-          #!/bin/bash
-          # Actualizar el sistema e instalar Docker
-          apt-get update -y
-          apt-get install -y docker.io
-          systemctl start docker
-          systemctl enable docker
-
-          # Crear volumen para que los datos de MySQL no se borren
-          docker volume create mysql_data
-
-          # Levantar el contenedor de MySQL v8
-          docker run -d \
-            --name mysql \
-            --restart always \
-            -v mysql_data:/var/lib/mysql \
-            -e MYSQL_ROOT_PASSWORD=root \
-            -e MYSQL_DATABASE=innovatech \
-            -p 3306:3306 \
-            mysql:8
-          EOF
-
-            echo "4. Lanzando nueva máquina EC2 con MySQL..."
-            aws ec2 run-instances \
-              --image-id ami-0c7217cdde317cfec \
-              --count 1 \
-              --instance-type t2.micro \
-              --key-name vockey \
-              --security-group-ids $SG_ID \
-              --subnet-id $SUBNET_1 \
-              --user-data file://userdata.sh \
-              --tag-specifications 'ResourceType=instance,Tags=[{Key=Name,Value=proyecto-devops-servidor}]'
-            
-            echo "Esperando 15 segundos a que la EC2 reporte su IP inicial..."
-            sleep 15
-          else
-            echo "La instancia ya está en ejecución. Omitiendo creación."
-          fi
-
-      # ==========================================
-      # EL MODO DIOS: Auto-crear TODO en AWS ECS
-      # ==========================================
-      - name: Auto-crear Infraestructura ECS (Cluster, Task, Service)
-        run: |
-          echo "1. Creando Clúster..."
-          aws ecs create-cluster --cluster-name ${{ env.CLUSTER }}
-
-          echo "2. Buscando redes dinámicas de AWS Academy..."
-          DEFAULT_VPC=$(aws ec2 describe-vpcs --filters Name=isDefault,Values=true --query 'Vpcs[0].VpcId' --output text)
-          SUBNET_1=$(aws ec2 describe-subnets --filters Name=vpc-id,Values=$DEFAULT_VPC --query 'Subnets[0].SubnetId' --output text)
-          SUBNET_2=$(aws ec2 describe-subnets --filters Name=vpc-id,Values=$DEFAULT_VPC --query 'Subnets[1].SubnetId' --output text)
-          SG_ID=$(aws ec2 describe-security-groups --filters Name=vpc-id,Values=$DEFAULT_VPC Name=group-name,Values=default --query 'SecurityGroups[0].GroupId' --output text)
-
-          echo "3. Capturando IP de la EC2 y Generando archivo de Task Definition..."
-          ACCOUNT_ID=${{ secrets.AWS_ACCOUNT_ID }}
-          REGION=${{ env.AWS_REGION }}
-          
-          # Capturamos la IP privada de la máquina EC2 que acabamos de crear o que ya existía
-          EC2_IP=$(aws ec2 describe-instances --filters "Name=tag:Name,Values=proyecto-devops-servidor" "Name=instance-state-name,Values=running,pending" --query 'Reservations[0].Instances[0].PrivateIpAddress' --output text)
-          
-          cat <<EOF > task-def.json
-          {
-            "family": "proyecto-devops-task",
-            "executionRoleArn": "arn:aws:iam::$ACCOUNT_ID:role/LabRole",
-            "taskRoleArn": "arn:aws:iam::$ACCOUNT_ID:role/LabRole",
-            "networkMode": "awsvpc",
-            "requiresCompatibilities": ["FARGATE"],
-            "cpu": "1024",
-            "memory": "3072",
-            "containerDefinitions": [
-              {
-                "name": "ventas",
-                "image": "$ACCOUNT_ID.dkr.ecr.$REGION.amazonaws.com/proyecto-devops-ventas:latest",
-                "essential": true,
-                "portMappings": [{"containerPort": 8080}],
-                "environment": [
-                  {"name": "DB_ENDPOINT", "value": "$EC2_IP"},
-                  {"name": "DB_PORT", "value": "3306"},
-                  {"name": "DB_NAME", "value": "innovatech"},
-                  {"name": "DB_USERNAME", "value": "root"},
-                  {"name": "DB_PASSWORD", "value": "root"}
-                ]
-              },
-              {
-                "name": "despacho",
-                "image": "$ACCOUNT_ID.dkr.ecr.$REGION.amazonaws.com/proyecto-devops-despacho:latest",
-                "essential": true,
-                "portMappings": [{"containerPort": 8081}],
-                "environment": [
-                  {"name": "DB_ENDPOINT", "value": "$EC2_IP"},
-                  {"name": "DB_PORT", "value": "3306"},
-                  {"name": "DB_NAME", "value": "innovatech"},
-                  {"name": "DB_USERNAME", "value": "root"},
-                  {"name": "DB_PASSWORD", "value": "root"}
-                ]
-              },
-              {
-                "name": "frontend",
-                "image": "$ACCOUNT_ID.dkr.ecr.$REGION.amazonaws.com/proyecto-devops-frontend:latest",
-                "essential": true,
-                "portMappings": [{"containerPort": 3000}]
-              }
-            ]
-          }
-          EOF
-          
-            echo "4. Lanzando nueva máquina EC2 con MySQL..."
-            aws ec2 run-instances \
-              --image-id ami-0c7217cdde317cfec \
-              --count 1 \
-              --instance-type t2.micro \
-              --key-name vockey \
-              --security-group-ids $SG_ID \
-              --subnet-id $SUBNET_1 \
-              --user-data file://userdata.sh \
-              --tag-specifications 'ResourceType=instance,Tags=[{Key=Name,Value=proyecto-devops-servidor}]'
-            # CAMBIA ESTO AQUÍ: Con 10 segundos es suficiente para que AWS registre la IP
-            echo "Esperando 10 segundos a que la EC2 asigne su IP..."
-            sleep 10
-
-          echo "5. Creando el Servicio (Si ya existe, ignorará el error)..."
-          aws ecs create-service \
-            --cluster ${{ env.CLUSTER }} \
-            --service-name ${{ env.SERVICE }} \
-            --task-definition proyecto-devops-task \
-            --desired-count 1 \
-            --launch-type FARGATE \
-            --network-configuration "awsvpcConfiguration={subnets=[$SUBNET_1,$SUBNET_2],securityGroups=[$SG_ID],assignPublicIp=ENABLED}" || true
-      # ==========================================
-
-      - name: Forzar redespliegue en AWS ECS (Sidecar)
+      - name: Deploy Frontend
         run: |
           aws ecs update-service \
-            --cluster ${{ env.CLUSTER }} \
-            --service ${{ env.SERVICE }} \
-            --force-new-deployment
+            --cluster $ECS_CLUSTER \
+            --service innovatech-spa-frontend-service \
+            --force-new-deployment \
+            --region $AWS_REGION
+
+      - name: Deploy Backend Ventas
+        run: |
+          aws ecs update-service \
+            --cluster $ECS_CLUSTER \
+            --service innovatech-spa-backend-ventas-service \
+            --force-new-deployment \
+            --region $AWS_REGION
+
+      - name: Deploy Backend Despacho
+        run: |
+          aws ecs update-service \
+            --cluster $ECS_CLUSTER \
+            --service innovatech-spa-backend-despacho-service \
+            --force-new-deployment \
+            --region $AWS_REGION
