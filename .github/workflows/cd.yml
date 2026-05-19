@@ -178,8 +178,19 @@ jobs:
           }
           EOF
           
-          echo "4. Registrando la Definición en AWS..."
-          aws ecs register-task-definition --cli-input-json file://task-def.json
+            echo "4. Lanzando nueva máquina EC2 con MySQL..."
+            aws ec2 run-instances \
+              --image-id ami-0c7217cdde317cfec \
+              --count 1 \
+              --instance-type t2.micro \
+              --key-name vockey \
+              --security-group-ids $SG_ID \
+              --subnet-id $SUBNET_1 \
+              --user-data file://userdata.sh \
+              --tag-specifications 'ResourceType=instance,Tags=[{Key=Name,Value=proyecto-devops-servidor}]'
+            # CAMBIA ESTO AQUÍ: Con 10 segundos es suficiente para que AWS registre la IP
+            echo "Esperando 10 segundos a que la EC2 asigne su IP..."
+            sleep 10
 
           echo "5. Creando el Servicio (Si ya existe, ignorará el error)..."
           aws ecs create-service \

@@ -1,30 +1,28 @@
-# =========================
-# STAGE 1 - BUILD
-# =========================
-FROM maven:3.9.6-eclipse-temurin-17 AS build
-
+# Etapa 1: Compilación de la aplicación
+FROM maven:3.8.5-openjdk-17-slim AS build
 WORKDIR /app
-
 COPY pom.xml .
 COPY src ./src
+RUN mvc clean package -DskipTests
 
-RUN mvn clean package -DskipTests
-
-# =========================
-# STAGE 2 - PRODUCTION
-# =========================
-FROM eclipse-temurin:17-jre-alpine
-
+# Etapa 2: Imagen ligera para correr la aplicación
+FROM openjdk:17-jdk-slim
 WORKDIR /app
 
-RUN addgroup -S spring && adduser -S spring -G spring
+# INSTALACIÓN DE NETCAT (Obligatorio para el script de espera)
+RUN apt-get update && \
+    apt-get install -y netcat && \
+    rm -rf /var/lib/apt/lists/*
 
+# Copiar el archivo JAR generado en la etapa anterior
 COPY --from=build /app/target/*.jar app.jar
 
-RUN chown spring:spring app.jar
+# Copiar y configurar el script entrypoint
+COPY entrypoint.sh entrypoint.sh
+RUN chmod +x entrypoint.sh
 
-USER spring:spring
-
+# Exponer el puerto del servicio Ventas
 EXPOSE 8080
 
-ENTRYPOINT ["java","-jar","app.jar"]
+# Declarar el script como el punto de entrada oficial
+ENTRYPOINT ["./entrypoint.sh"]
