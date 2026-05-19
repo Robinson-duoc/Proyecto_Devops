@@ -1,18 +1,16 @@
-# Etapa 1: Compilación de la aplicación
+# Etapa 1: Compilación de la aplicación (Se queda igual)
 FROM maven:3.8.5-openjdk-17-slim AS build
 WORKDIR /app
 COPY pom.xml .
 COPY src ./src
 RUN mvn clean package -DskipTests
 
-# Etapa 2: Imagen oficial y moderna para correr la aplicación (Eclipse Temurin)
-FROM eclipse-temurin:17-jdk
+# Etapa 2: Imagen oficial y ultra-ligera basada en ALPINE LINUX
+FROM eclipse-temurin:17-jdk-alpine
 WORKDIR /app
 
-# INSTALACIÓN DE NETCAT
-RUN apt-get update && \
-    apt-get install -y netcat && \
-    rm -rf /var/lib/apt/lists/*
+# INSTALACIÓN DE NETCAT EN ALPINE
+RUN apk add --no-cache netcat-openbsd
 
 # Copiar el archivo JAR generado en la etapa anterior
 COPY --from=build /app/target/*.jar app.jar
