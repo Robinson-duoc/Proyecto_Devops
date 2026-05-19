@@ -31,7 +31,7 @@ jobs:
         uses: aws-actions/amazon-ecr-login@v2
 
       - name: Build y Push Frontend
-        working-directory: front_despacho
+        working-directory: frontend
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
         run: |
@@ -58,7 +58,7 @@ jobs:
         uses: aws-actions/amazon-ecr-login@v2
 
       - name: Build y Push Backend Ventas
-        working-directory: backend/Springboot-API-REST-VENTAS
+        working-directory: back-Ventas_SpringBoot
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
         run: |
@@ -86,7 +86,7 @@ jobs:
         uses: aws-actions/amazon-ecr-login@v2
 
       - name: Build y Push Backend Despacho
-        working-directory: backend/Springboot-API-REST-DESPACHO
+        working-directory: back-Despachos_SpringBoot
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
         run: |
