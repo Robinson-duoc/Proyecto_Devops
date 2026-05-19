@@ -8,7 +8,7 @@ on:
 
 env:
   AWS_REGION: us-east-1
-  PROJECT_NAME: innovatech-spa
+  ECR_URL: 654654241329.dkr.ecr.us-east-1.amazonaws.com
 
 jobs:
   build-frontend:
@@ -27,16 +27,13 @@ jobs:
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Login a ECR
-        id: login-ecr # Le damos un ID para capturar su salida (URL)
         uses: aws-actions/amazon-ecr-login@v2
 
       - name: Build y Push Frontend
         working-directory: frontend
-        env:
-          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
         run: |
-          docker build -t $ECR_REGISTRY/${{ env.PROJECT_NAME }}-frontend:latest .
-          docker push $ECR_REGISTRY/${{ env.PROJECT_NAME }}-frontend:latest
+          docker build -t $ECR_URL/innovatech-spa-frontend:latest .
+          docker push $ECR_URL/innovatech-spa-frontend:latest
 
   build-backend-ventas:
     name: Build Backend Ventas
@@ -54,17 +51,13 @@ jobs:
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Login a ECR
-        id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
 
       - name: Build y Push Backend Ventas
         working-directory: back-Ventas_SpringBoot
-        env:
-          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
         run: |
-          # Aseguramos que el nombre termine en "-backend-ventas"
-          docker build -t $ECR_REGISTRY/${{ env.PROJECT_NAME }}-backend-ventas:latest .
-          docker push $ECR_REGISTRY/${{ env.PROJECT_NAME }}-backend-ventas:latest
+          docker build -t $ECR_URL/innovatech-spa-backend:latest .
+          docker push $ECR_URL/innovatech-spa-backend:latest
 
   build-backend-despacho:
     name: Build Backend Despacho
@@ -82,13 +75,10 @@ jobs:
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Login a ECR
-        id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
 
       - name: Build y Push Backend Despacho
         working-directory: back-Despachos_SpringBoot
-        env:
-          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
         run: |
-          docker build -t $ECR_REGISTRY/${{ env.PROJECT_NAME }}-backend-despacho:latest .
-          docker push $ECR_REGISTRY/${{ env.PROJECT_NAME }}-backend-despacho:latest
+          docker build -t $ECR_URL/innovatech-spa-backend-despacho:latest .
+          docker push $ECR_URL/innovatech-spa-backend-despacho:latest
