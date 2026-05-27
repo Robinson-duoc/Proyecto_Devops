@@ -1,12 +1,30 @@
-FROM maven:3.9-eclipse-temurin-17 AS builder
-WORKDIR /build
-COPY pom.xml .                  
-COPY src ./src                   
-RUN mvn clean package -DskipTests
+# ============================================================
+# Stage 1:Compilar con Maven
+# ============================================================
+FROM maven:3.9-eclipse-temurin-17 AS build
 
-FROM eclipse-temurin:17-jdk AS runner
 WORKDIR /app
-COPY --from=builder /build/target/*.jar app.jar
-COPY entrypoint.sh /entrypoint.sh
-EXPOSE 8080
-ENTRYPOINT ["java","-jar","app.jar"]
+COPY Springboot-API-REST-DESPACHO ./Springboot-API-REST-DESPACHO
+WORKDIR /app/Springboot-API-REST-DESPACHO
+RUN mvn clean package -DskipTests -B
+# ============================================================
+# Stage 2 
+# ============================================================
+FROM eclipse-temurin:17-jre-alpine
+
+# Crear usuario no-root (mínimo privilegio)
+RUN addgroup -g 1001 -S appgroup && \
+    adduser -u 1001 -S appuser -G appgroup
+WORKDIR /app
+COPY --from=build /app/Springboot-API-REST-DESPACHO/target/*.jar app.jar
+RUN chown appuser:appgroup app.jar
+USER appuser
+# Puerto correcto según application.properties
+EXPOSE 8081
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+  CMD wget --no-verbose --tries=1 --spider http://localhost:8081/api/v1/despachos || exit 1
+ENTRYPOINT ["java", \
+  "-XX:+UseContainerSupport", \
+  "-XX:MaxRAMPercentage=75.0", \
+  "-Djava.security.egd=file:/dev/./urandom", \
+  "-jar", "app.jar"]
