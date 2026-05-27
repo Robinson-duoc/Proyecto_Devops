@@ -37,3 +37,4 @@ terraform.tfstate.backup
 # =========================
 .DS_Store
 Thumbs.db
+infra/output.tf

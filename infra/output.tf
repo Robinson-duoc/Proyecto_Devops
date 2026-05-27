@@ -80,5 +80,5 @@ output "ecs_service_ventas" {
 }
 
 output "ecs_service_despachos" {
-  value = aws_ecs_service.backend_despachos.name
+  value = aws_ecs_service.backend_despachos.name    
 }
