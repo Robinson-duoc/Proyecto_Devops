@@ -3,7 +3,7 @@
 # ============================================================
 FROM maven:3.9-eclipse-temurin-17 AS build
 WORKDIR /app
-COPY Springboot-API-REST ./Springboot-API-REST
+COPY . ./Springboot-API-REST
 WORKDIR /app/Springboot-API-REST
 RUN mvn clean package -DskipTests -B
 # ============================================================

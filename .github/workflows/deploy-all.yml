@@ -1,0 +1,113 @@
+name: CI/CD Innovatech AWS
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'front_despacho/**'
+      - 'Springboot-API-REST-DESPACHO/**'
+      - 'back-Ventas_SpringBoot/**'
+
+env:
+  AWS_REGION: us-east-1
+  CLUSTER: innovatech-cluster
+
+jobs:
+  deploy-frontend:
+    name: Deploy Frontend
+    runs-on: ubuntu-latest
+    if: |
+      contains(github.event.head_commit.modified, 'front_despacho/') ||
+      github.run_number == 1
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: ${{ env.AWS_REGION }}
+      
+      - name: Login ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+      
+      - name: Build and Push Frontend
+        run: |
+          docker build --platform linux/amd64 \
+          -t ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/innovatech-frontend:latest \
+          ./front_despacho
+          docker push ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/innovatech-frontend:latest
+
+      - name: Deploy ECS
+        run: |
+          aws ecs update-service --cluster ${{ env.CLUSTER }} --service frontend-service --force-new-deployment
+
+  deploy-despachos:
+    name: Deploy Backend Despachos
+    runs-on: ubuntu-latest
+    if: |
+      contains(github.event.head_commit.modified, 'Springboot-API-REST-DESPACHO/') ||
+      github.run_number == 1
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: ${{ env.AWS_REGION }}
+      
+      - name: Login ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+      
+      - name: Build and Push Despachos
+        run: |
+          docker build --platform linux/amd64 \
+          -t ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/innovatech-backend-despachos:latest \
+          ./Springboot-API-REST-DESPACHO
+          docker push ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/innovatech-backend-despachos:latest
+
+      - name: Deploy ECS
+        run: |
+          aws ecs update-service --cluster ${{ env.CLUSTER }} --service despachos-service --force-new-deployment
+
+  deploy-ventas:
+    name: Deploy Backend Ventas
+    runs-on: ubuntu-latest
+    if: |
+      contains(github.event.head_commit.modified, 'back-Ventas_SpringBoot/') ||
+      github.run_number == 1
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: ${{ env.AWS_REGION }}
+      
+      - name: Login ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+      
+      - name: Build and Push Ventas
+        run: |
+          docker build --platform linux/amd64 \
+          -t ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/innovatech-backend-ventas:latest \
+          ./back-Ventas_SpringBoot
+          docker push ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/innovatech-backend-ventas:latest
+
+      - name: Deploy ECS
+        run: |
+          aws ecs update-service --cluster ${{ env.CLUSTER }} --service ventas-service --force-new-deployment

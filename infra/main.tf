@@ -1,344 +1,467 @@
-# ======================================================================
-# 1. PROVIDER Y VARIABLES
-# ======================================================================
+# ============================================================
+# CONFIGURACIÓN INICIAL & PROVEEDORES
+# ============================================================
+terraform {
+  required_version = ">= 1.0.0"
+
+  required_providers {
+    aws = {
+      source  = "hashicorp/aws"
+      version = "~> 5.0"
+    }
+  }
+}
 
 provider "aws" {
   region = var.aws_region
 }
 
-# Variables de Red e Infraestructura (Vienen de terraform.tfvars)
-variable "aws_region" { default = "us-east-1" }
-variable "project_name" { default = "innovatech" }
-variable "vpc_cidr" { default = "10.0.0.0/16" }
-variable "subnet_public_cidr" { default = "10.0.1.0/24" }
-variable "subnet_private_cidr" { default = "10.0.2.0/24" }
-variable "availability_zone" { default = "us-east-1a" }
-variable "instance_type" { default = "t2.micro" }
-variable "ami_id" { default = "ami-0c02fb55956c7d316" }
-variable "key_name" { description = "Nombre de la llave SSH en AWS" }
-variable "my_ip" { description = "Tu IP pública" }
-
-# Variables de la Base de Datos
-variable "db_name" { default = "innovatech_db" }
-variable "db_user" { default = "root" }
-variable "db_password" { default = "root" }
-
-# ======================================================================
-# 2. DATA SOURCES (Roles de AWS Academy y AMIs)
-# ======================================================================
-
-data "aws_iam_instance_profile" "lab_profile" {
-  name = "LabInstanceProfile"
-}
-
-data "aws_iam_role" "lab" {
-  name = "LabRole"
-}
-
-data "aws_ami" "amazon_linux" {
-  most_recent = true
-  owners      = ["amazon"]
-  filter {
-    name   = "name"
-    values = ["al2023-ami-*-x86_64"]
-  }
-}
-
-data "aws_ami" "ecs_optimized" {
-  most_recent = true
-  owners      = ["amazon"]
-  filter {
-    name   = "name"
-    values = ["al2023-ami-ecs-hvm-*-x86_64"]
-  }
-}
-
-# ======================================================================
-# 3. RED (VPC, Subredes, Gateways)
-# ======================================================================
-
+# ============================================================
+# RED PRINCIPAL (VPC, Subnets, Gateways y Tablas de Ruta)
+# ============================================================
 resource "aws_vpc" "main" {
-  cidr_block = var.vpc_cidr
-  enable_dns_support   = true
+  cidr_block           = var.vpc_cidr
   enable_dns_hostnames = true
-  tags = { Name = "${var.project_name}-vpc" }
+  enable_dns_support   = true
+
+  tags = {
+    Name    = "${var.project_name}-vpc"
+    Project = var.project_name
+  }
 }
 
 resource "aws_subnet" "public" {
   vpc_id                  = aws_vpc.main.id
   cidr_block              = var.subnet_public_cidr
-  map_public_ip_on_launch = true
   availability_zone       = var.availability_zone
-  tags = { Name = "${var.project_name}-public-subnet" }
+  map_public_ip_on_launch = true
+
+  tags = {
+    Name    = "${var.project_name}-subnet-public"
+    Project = var.project_name
+    Tier    = "public"
+  }
 }
 
 resource "aws_subnet" "private" {
   vpc_id            = aws_vpc.main.id
   cidr_block        = var.subnet_private_cidr
   availability_zone = var.availability_zone
-  tags = { Name = "${var.project_name}-private-subnet" }
+
+  tags = {
+    Name    = "${var.project_name}-subnet-private"
+    Project = var.project_name
+    Tier    = "private"
+  }
 }
 
-resource "aws_internet_gateway" "igw" {
+resource "aws_internet_gateway" "main" {
   vpc_id = aws_vpc.main.id
-  tags = { Name = "${var.project_name}-igw" }
+
+  tags = {
+    Name    = "${var.project_name}-igw"
+    Project = var.project_name
+  }
 }
 
-resource "aws_eip" "nat" {
-  domain = "vpc"
-  tags = { Name = "${var.project_name}-eip" }
-}
-
-resource "aws_nat_gateway" "nat" {
-  allocation_id = aws_eip.nat.id
-  subnet_id     = aws_subnet.public.id
-  depends_on    = [aws_internet_gateway.igw]
-  tags = { Name = "${var.project_name}-nat-gw" }
-}
-
-# ======================================================================
-# 4. SECURITY GROUPS
-# ======================================================================
-
-resource "aws_security_group" "frontend_sg" {
+resource "aws_route_table" "public" {
   vpc_id = aws_vpc.main.id
-  tags = { Name = "${var.project_name}-frontend-sg" }
+
+  route {
+    cidr_block = "0.0.0.0/0"
+    gateway_id = aws_internet_gateway.main.id
+  }
+
+  tags = {
+    Name    = "${var.project_name}-rt-public"
+    Project = var.project_name
+  }
+}
+
+resource "aws_route_table_association" "public" {
+  subnet_id      = aws_subnet.public.id
+  route_table_id = aws_route_table.public.id
+}
+
+# ============================================================
+# GRUPOS DE SEGURIDAD (Security Groups)
+# ============================================================
+resource "aws_security_group" "frontend" {
+  name        = "${var.project_name}-sg-frontend"
+  description = "Security Group para instancia EC2 Frontend"
+  vpc_id      = aws_vpc.main.id
 
   ingress {
+    description = "HTTP desde Internet"
     from_port   = 80
     to_port     = 80
     protocol    = "tcp"
     cidr_blocks = ["0.0.0.0/0"]
   }
+
   ingress {
+    description = "HTTPS desde Internet"
+    from_port   = 443
+    to_port     = 443
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  ingress {
+    description = "SSH desde mi IP"
     from_port   = 22
     to_port     = 22
     protocol    = "tcp"
-    cidr_blocks = [var.my_ip] # Limitado a tu IP
+    cidr_blocks = [var.my_ip]
   }
+
   egress {
+    description = "Todo el trafico saliente"
     from_port   = 0
     to_port     = 0
     protocol    = "-1"
     cidr_blocks = ["0.0.0.0/0"]
   }
-}
-
-resource "aws_security_group" "backend_sg" {
-  vpc_id = aws_vpc.main.id
-  tags = { Name = "${var.project_name}-backend-sg" }
-
-  ingress {
-    from_port       = 8080 # Puerto de Ventas
-    to_port         = 8080
-    protocol        = "tcp"
-    security_groups = [aws_security_group.frontend_sg.id]
-  }
-  ingress {
-    from_port       = 9090 # Puerto de Despachos
-    to_port         = 9090
-    protocol        = "tcp"
-    security_groups = [aws_security_group.frontend_sg.id]
-  }
-  egress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-}
-
-resource "aws_security_group" "data_sg" {
-  vpc_id = aws_vpc.main.id
-  tags = { Name = "${var.project_name}-data-sg" }
-
-  ingress {
-    from_port       = 3306
-    to_port         = 3306
-    protocol        = "tcp"
-    security_groups = [aws_security_group.backend_sg.id]
-  }
-  egress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-}
-
-# ======================================================================
-# 5. ECR REPOSITORIES (Nombres exactos para GitHub Actions)
-# ======================================================================
-
-resource "aws_ecr_repository" "frontend" {
-  name         = "innovatech-frontend"
-  force_delete = true
-}
-
-resource "aws_ecr_repository" "backend_ventas" {
-  name         = "innovatech-backend-ventas"
-  force_delete = true
-}
-
-resource "aws_ecr_repository" "backend_despachos" {
-  name         = "innovatech-backend-despachos"
-  force_delete = true
-}
-
-# ======================================================================
-# 6. INSTANCIA DE BASE DE DATOS (EC2)
-# ======================================================================
-
-resource "aws_instance" "db" {
-  ami                    = data.aws_ami.amazon_linux.id
-  instance_type          = var.instance_type
-  subnet_id              = aws_subnet.private.id # Mejor práctica: DB en red privada
-  vpc_security_group_ids = [aws_security_group.data_sg.id]
-  key_name               = var.key_name
-  iam_instance_profile   = data.aws_iam_instance_profile.lab_profile.name
-
-  root_block_device {
-    volume_size = 20
-    volume_type = "gp3"
-  }
-
-  user_data = <<-EOF
-    #!/bin/bash
-    yum update -y
-    yum install -y docker
-    systemctl start docker
-    systemctl enable docker
-    
-    until docker info > /dev/null 2>&1; do sleep 3; done
-    
-    docker run -d \
-    --name mysql \
-    -e MYSQL_ROOT_PASSWORD=${var.db_password} \
-    -e MYSQL_DATABASE=${var.db_name} \
-    -p 3306:3306 \
-    --restart always \
-    mysql:8-oracle \
-    --bind-address=0.0.0.0 \
-    --performance-schema=OFF
-  EOF
 
   tags = {
-    Name = "${var.project_name}-mysql"
-    Role = "Database"
+    Name    = "${var.project_name}-sg-frontend"
+    Project = var.project_name
+    Tier    = "public"
   }
 }
 
-# ======================================================================
-# 7. CLUSTER ECS Y AUTO SCALING
-# ======================================================================
+resource "aws_security_group" "backend" {
+  name        = "${var.project_name}-sg-backend"
+  description = "Security Group para instancia EC2 Backend"
+  vpc_id      = aws_vpc.main.id
 
-resource "aws_ecs_cluster" "main" {
-  name = "${var.project_name}-cluster"
-}
-
-resource "aws_launch_template" "ecs" {
-  name_prefix   = "${var.project_name}-ecs-"
-  image_id      = data.aws_ami.ecs_optimized.id
-  instance_type = var.instance_type
-  key_name      = var.key_name
-
-  iam_instance_profile {
-    name = data.aws_iam_instance_profile.lab_profile.name
+  ingress {
+    description     = "API Despachos desde Frontend"
+    from_port       = 8081
+    to_port         = 8081
+    protocol        = "tcp"
+    security_groups = [aws_security_group.frontend.id]
   }
 
-  vpc_security_group_ids = [aws_security_group.frontend_sg.id, aws_security_group.backend_sg.id]
+  ingress {
+    description     = "API Ventas desde Frontend"
+    from_port       = 8080
+    to_port         = 8080
+    protocol        = "tcp"
+    security_groups = [aws_security_group.frontend.id]
+  }
 
-  user_data = base64encode(<<-EOF
+  ingress {
+    description = "SSH desde mi IP"
+    from_port   = 22
+    to_port     = 22
+    protocol    = "tcp"
+    cidr_blocks = [var.my_ip]
+  }
+
+  egress {
+    description = "Todo el trafico saliente"
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  tags = {
+    Name    = "${var.project_name}-sg-backend"
+    Project = var.project_name
+    Tier    = "private"
+  }
+}
+
+resource "aws_security_group" "ecs_tasks" {
+  name        = "${var.project_name}-sg-ecs-tasks"
+  description = "Security Group para tareas ECS Fargate"
+  vpc_id      = aws_vpc.main.id
+
+  ingress {
+    description = "HTTP Frontend desde Internet"
+    from_port   = 80
+    to_port     = 80
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  ingress {
+    description = "API Despachos desde VPC"
+    from_port   = 8081
+    to_port     = 8081
+    protocol    = "tcp"
+    cidr_blocks = [var.vpc_cidr]
+  }
+
+  ingress {
+    description = "API Ventas desde VPC"
+    from_port   = 8080
+    to_port     = 8080
+    protocol    = "tcp"
+    cidr_blocks = [var.vpc_cidr]
+  }
+
+  ingress {
+    description = "MySQL interno entre contenedores ECS"
+    from_port   = 3306
+    to_port     = 3306
+    protocol    = "tcp"
+    cidr_blocks = [var.vpc_cidr]
+  }
+
+  egress {
+    description = "Todo el trafico saliente"
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  tags = {
+    Name    = "${var.project_name}-sg-ecs-tasks"
+    Project = var.project_name
+  }
+}
+
+# ============================================================
+# INSTANCIAS EC2 & USER DATA LOCALS
+# ============================================================
+locals {
+  user_data_docker = <<-EOF
     #!/bin/bash
-    echo ECS_CLUSTER=${aws_ecs_cluster.main.name} >> /etc/ecs/ecs.config
+    dnf update -y
+    dnf install -y docker git aws-cli
+    systemctl start docker
+    systemctl enable docker
+    usermod -aG docker ec2-user
+    curl -L "https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" \
+      -o /usr/local/bin/docker-compose
+    chmod +x /usr/local/bin/docker-compose
+    echo "✅ Docker, Docker Compose y AWS CLI instalados" >> /var/log/user-data.log
   EOF
-  )
 }
 
-resource "aws_autoscaling_group" "ecs" {
-  name                = "${var.project_name}-ecs-asg"
-  desired_capacity    = 1
-  min_size            = 1
-  max_size            = 2
-  vpc_zone_identifier = [aws_subnet.public.id] # Instancias en red pública para salir a internet
+resource "aws_instance" "frontend" {
+  ami                         = var.ami_id
+  instance_type               = var.instance_type
+  subnet_id                   = aws_subnet.public.id
+  vpc_security_group_ids      = [aws_security_group.frontend.id]
+  key_name                    = var.key_name
+  associate_public_ip_address = true
+  user_data                   = local.user_data_docker
 
-  launch_template {
-    id      = aws_launch_template.ecs.id
-    version = "$Latest"
-  }
-
-  tag {
-    key                 = "AmazonECSManaged"
-    value               = true
-    propagate_at_launch = true
-  }
-}
-
-resource "aws_ecs_capacity_provider" "main" {
-  name = "${var.project_name}-cp"
-
-  auto_scaling_group_provider {
-    auto_scaling_group_arn = aws_autoscaling_group.ecs.arn
-    managed_scaling {
-      status          = "ENABLED"
-      target_capacity = 100
+  root_block_device {
+    volume_type           = "gp3"
+    volume_size           = 20
+    delete_on_termination = true
+    tags = {
+      Name    = "${var.project_name}-vol-frontend"
+      Project = var.project_name
     }
   }
-}
 
-resource "aws_ecs_cluster_capacity_providers" "main" {
-  cluster_name       = aws_ecs_cluster.main.name
-  capacity_providers = [aws_ecs_capacity_provider.main.name]
-
-  default_capacity_provider_strategy {
-    capacity_provider = aws_ecs_capacity_provider.main.name
-    weight            = 1
-    base              = 1
+  tags = {
+    Name    = "${var.project_name}-ec2-frontend"
+    Project = var.project_name
+    Tier    = "public"
+    Role    = "frontend"
   }
 }
 
-# ======================================================================
-# 8. ECS TASK DEFINITIONS Y SERVICES
-# ======================================================================
+resource "aws_instance" "backend" {
+  ami                         = var.ami_id
+  instance_type               = var.instance_type
+  subnet_id                   = aws_subnet.private.id
+  vpc_security_group_ids      = [aws_security_group.backend.id]
+  key_name                    = var.key_name
+  associate_public_ip_address = false
+  user_data                   = local.user_data_docker
 
-# --- LOGS DE CLOUDWATCH ---
-resource "aws_cloudwatch_log_group" "ecs_frontend" {
-  name              = "/ecs/${var.project_name}-frontend"
-  retention_in_days = 7
+  root_block_device {
+    volume_type           = "gp3"
+    volume_size           = 30
+    delete_on_termination = true
+    tags = {
+      Name    = "${var.project_name}-vol-backend"
+      Project = var.project_name
+    }
+  }
+
+  tags = {
+    Name    = "${var.project_name}-ec2-backend"
+    Project = var.project_name
+    Tier    = "private"
+    Role    = "backend"
+  }
 }
-resource "aws_cloudwatch_log_group" "ecs_backend_ventas" {
-  name              = "/ecs/${var.project_name}-backend-ventas"
-  retention_in_days = 7
+
+# ============================================================
+# REPOSITORIOS ECR (Elastic Container Registry)
+# ============================================================
+resource "aws_ecr_repository" "repo_frontend" {
+  name                 = "innovatech-frontend"
+  image_tag_mutability = "MUTABLE"
+
+  image_scanning_configuration {
+    scan_on_push = true
+  }
+
+  force_delete = true
+
+  tags = {
+    Name    = "innovatech-frontend"
+    Project = var.project_name
+  }
 }
-resource "aws_cloudwatch_log_group" "ecs_backend_despachos" {
-  name              = "/ecs/${var.project_name}-backend-despachos"
+
+resource "aws_ecr_repository" "repo_despachos" {
+  name                 = "innovatech-backend-despachos"
+  image_tag_mutability = "MUTABLE"
+
+  image_scanning_configuration {
+    scan_on_push = true
+  }
+
+  force_delete = true
+
+  tags = {
+    Name    = "innovatech-backend-despachos"
+    Project = var.project_name
+  }
+}
+
+resource "aws_ecr_repository" "repo_ventas" {
+  name                 = "innovatech-backend-ventas"
+  image_tag_mutability = "MUTABLE"
+
+  image_scanning_configuration {
+    scan_on_push = true
+  }
+
+  force_delete = true
+
+  tags = {
+    Name    = "innovatech-backend-ventas"
+    Project = var.project_name
+  }
+}
+
+resource "aws_ecr_lifecycle_policy" "frontend" {
+  repository = aws_ecr_repository.repo_frontend.name
+  policy = jsonencode({
+    rules = [{
+      rulePriority = 1
+      description  = "Mantener solo las ultimas 5 imagenes"
+      selection = {
+        tagStatus   = "any"
+        countType   = "imageCountMoreThan"
+        countNumber = 5
+      }
+      action = { type = "expire" }
+    }]
+  })
+}
+
+resource "aws_ecr_lifecycle_policy" "despachos" {
+  repository = aws_ecr_repository.repo_despachos.name
+  policy = jsonencode({
+    rules = [{
+      rulePriority = 1
+      description  = "Mantener solo las ultimas 5 imagenes"
+      selection = {
+        tagStatus   = "any"
+        countType   = "imageCountMoreThan"
+        countNumber = 5
+      }
+      action = { type = "expire" }
+    }]
+  })
+}
+
+resource "aws_ecr_lifecycle_policy" "ventas" {
+  repository = aws_ecr_repository.repo_ventas.name
+  policy = jsonencode({
+    rules = [{
+      rulePriority = 1
+      description  = "Mantener solo las ultimas 5 imagenes"
+      selection = {
+        tagStatus   = "any"
+        countType   = "imageCountMoreThan"
+        countNumber = 5
+      }
+      action = { type = "expire" }
+    }]
+  })
+}
+
+# ============================================================
+# ECS CLUSTER, TASK DEFINITIONS Y SERVICIOS
+# ============================================================
+resource "aws_ecs_cluster" "innovatech_cluster" {
+  name = "innovatech-cluster"
+
+  setting {
+    name  = "containerInsights"
+    value = "enabled"
+  }
+}
+
+data "aws_iam_role" "lab_role" {
+  name = "LabRole"
+}
+
+data "aws_caller_identity" "current" {}
+
+resource "aws_cloudwatch_log_group" "frontend" {
+  name              = "/ecs/innovatech-frontend"
   retention_in_days = 7
 }
 
-# --- FRONTEND ---
-resource "aws_ecs_task_definition" "frontend" {
-  family                   = "${var.project_name}-frontend"
-  network_mode             = "bridge"
-  requires_compatibilities = ["EC2"]
-  execution_role_arn       = data.aws_iam_role.lab.arn
+resource "aws_cloudwatch_log_group" "despachos" {
+  name              = "/ecs/innovatech-despachos"
+  retention_in_days = 7
+}
+
+resource "aws_cloudwatch_log_group" "ventas" {
+  name              = "/ecs/innovatech-ventas"
+  retention_in_days = 7
+}
+
+resource "aws_cloudwatch_log_group" "mysql_despachos" {
+  name              = "/ecs/innovatech-mysql-despachos"
+  retention_in_days = 7
+}
+
+resource "aws_cloudwatch_log_group" "mysql_ventas" {
+  name              = "/ecs/innovatech-mysql-ventas"
+  retention_in_days = 7
+}
+
+resource "aws_ecs_task_definition" "task_frontend" {
+  family                   = "frontend-task"
+  network_mode             = "awsvpc"
+  requires_compatibilities = ["FARGATE"]
+  cpu                      = "256"
+  memory                   = "512"
+  execution_role_arn       = data.aws_iam_role.lab_role.arn
+  task_role_arn            = data.aws_iam_role.lab_role.arn
 
   container_definitions = jsonencode([
     {
-      name      = "frontend"
-      image     = "${aws_ecr_repository.frontend.repository_url}:latest"
+      name      = "frontend-container"
+      image     = "${data.aws_caller_identity.current.account_id}.dkr.ecr.us-east-1.amazonaws.com/innovatech-frontend:latest"
       essential = true
-      memory    = 256
-      cpu       = 256
-      portMappings = [{
-        containerPort = 80
-        hostPort      = 80
-        protocol      = "tcp"
-      }]
+      portMappings = [{ containerPort = 80, hostPort = 80, protocol = "tcp" }]
+      environment = [
+        { name = "VITE_API_URL", value = "http://localhost:8081" }
+      ]
       logConfiguration = {
         logDriver = "awslogs"
         options = {
-          "awslogs-group"         = aws_cloudwatch_log_group.ecs_frontend.name
-          "awslogs-region"        = var.aws_region
+          "awslogs-group"         = "/ecs/innovatech-frontend"
+          "awslogs-region"        = "us-east-1"
           "awslogs-stream-prefix" = "frontend"
         }
       }
@@ -346,89 +469,65 @@ resource "aws_ecs_task_definition" "frontend" {
   ])
 }
 
-resource "aws_ecs_service" "frontend" {
-  name            = "frontend-service"
-  cluster         = aws_ecs_cluster.main.id
-  task_definition = aws_ecs_task_definition.frontend.arn
-  desired_count   = 1
-  depends_on      = [aws_ecs_cluster_capacity_providers.main]
-}
-
-# --- BACKEND VENTAS ---
-resource "aws_ecs_task_definition" "backend_ventas" {
-  family                   = "${var.project_name}-backend-ventas"
-  network_mode             = "bridge"
-  requires_compatibilities = ["EC2"]
-  execution_role_arn       = data.aws_iam_role.lab.arn
+resource "aws_ecs_task_definition" "task_despachos" {
+  family                   = "despachos-task"
+  network_mode             = "awsvpc"
+  requires_compatibilities = ["FARGATE"]
+  cpu                      = "1024" 
+  memory                   = "2048"
+  execution_role_arn       = data.aws_iam_role.lab_role.arn
+  task_role_arn            = data.aws_iam_role.lab_role.arn
 
   container_definitions = jsonencode([
     {
-      name      = "backend-ventas"
-      image     = "${aws_ecr_repository.backend_ventas.repository_url}:latest"
+      name      = "mysql-despachos"
+      image     = "mysql:8.0"
       essential = true
-      memory    = 256
-      cpu       = 256
-      portMappings = [{
-        containerPort = 8080
-        hostPort      = 8080
-        protocol      = "tcp"
-      }]
+      portMappings = [{ containerPort = 3306, hostPort = 3306, protocol = "tcp" }]
       environment = [
-        { name = "SPRING_DATASOURCE_URL", value = "jdbc:mysql://${aws_instance.db.private_ip}:3306/${var.db_name}?useSSL=false" },
-        { name = "SPRING_DATASOURCE_USERNAME", value = var.db_user },
-        { name = "SPRING_DATASOURCE_PASSWORD", value = var.db_password },
-        { name = "SPRING_JPA_HIBERNATE_DDL_AUTO", value = "update" }
+        { name = "MYSQL_ROOT_PASSWORD", value = "rootpass123" },
+        { name = "MYSQL_DATABASE",      value = "despachos_db" },
+        { name = "MYSQL_USER",          value = "despacho_user" },
+        { name = "MYSQL_PASSWORD",      value = "despacho_pass123" }
       ]
+      healthCheck = {
+        command     = ["CMD-SHELL", "mysqladmin ping -h localhost -uroot -prootpass123 || exit 1"]
+        interval    = 30
+        timeout     = 5
+        retries     = 5
+        startPeriod = 40
+      }
       logConfiguration = {
         logDriver = "awslogs"
         options = {
-          "awslogs-group"         = aws_cloudwatch_log_group.ecs_backend_ventas.name
-          "awslogs-region"        = var.aws_region
-          "awslogs-stream-prefix" = "ventas"
+          "awslogs-group"         = "/ecs/innovatech-mysql-despachos"
+          "awslogs-region"        = "us-east-1"
+          "awslogs-stream-prefix" = "mysql-despachos"
         }
       }
-    }
-  ])
-}
-
-resource "aws_ecs_service" "backend_ventas" {
-  name            = "ventas-service"
-  cluster         = aws_ecs_cluster.main.id
-  task_definition = aws_ecs_task_definition.backend_ventas.arn
-  desired_count   = 1
-  depends_on      = [aws_ecs_cluster_capacity_providers.main]
-}
-
-# --- BACKEND DESPACHOS ---
-resource "aws_ecs_task_definition" "backend_despachos" {
-  family                   = "${var.project_name}-backend-despachos"
-  network_mode             = "bridge"
-  requires_compatibilities = ["EC2"]
-  execution_role_arn       = data.aws_iam_role.lab.arn
-
-  container_definitions = jsonencode([
+    },
     {
-      name      = "backend-despachos"
-      image     = "${aws_ecr_repository.backend_despachos.repository_url}:latest"
+      name      = "despachos-container"
+      image     = "${data.aws_caller_identity.current.account_id}.dkr.ecr.us-east-1.amazonaws.com/innovatech-backend-despachos:latest"
       essential = true
-      memory    = 256
-      cpu       = 256
-      portMappings = [{
-        containerPort = 8080
-        hostPort      = 9090 # Diferente puerto en el Host para que no colisione con Ventas
-        protocol      = "tcp"
-      }]
+      portMappings = [{ containerPort = 8081, hostPort = 8081, protocol = "tcp" }]
       environment = [
-        { name = "SPRING_DATASOURCE_URL", value = "jdbc:mysql://${aws_instance.db.private_ip}:3306/${var.db_name}?useSSL=false" },
-        { name = "SPRING_DATASOURCE_USERNAME", value = var.db_user },
-        { name = "SPRING_DATASOURCE_PASSWORD", value = var.db_password },
-        { name = "SPRING_JPA_HIBERNATE_DDL_AUTO", value = "update" }
+        { name = "DB_ENDPOINT", value = "127.0.0.1" },
+        { name = "DB_PORT",     value = "3306" },
+        { name = "DB_NAME",     value = "despachos_db" },
+        { name = "DB_USERNAME", value = "despacho_user" },
+        { name = "DB_PASSWORD", value = "despacho_pass123" },
+        { name = "SPRING_PROFILES_ACTIVE",     value = "prod" },
+        { name = "SPRING_DATASOURCE_URL",      value = "jdbc:mysql://127.0.0.1:3306/despachos_db?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC" },
+        { name = "SPRING_DATASOURCE_USERNAME", value = "despacho_user" },
+        { name = "SPRING_DATASOURCE_PASSWORD", value = "despacho_pass123" }
       ]
+      dependsOn = [{ containerName = "mysql-despachos", condition = "HEALTHY" }]
       logConfiguration = {
         logDriver = "awslogs"
         options = {
-          "awslogs-group"         = aws_cloudwatch_log_group.ecs_backend_despachos.name
-          "awslogs-region"        = var.aws_region
+          "awslogs-group"         = "/ecs/innovatech-despachos"
+          "awslogs-region"        = "us-east-1"
           "awslogs-stream-prefix" = "despachos"
         }
       }
@@ -436,10 +535,110 @@ resource "aws_ecs_task_definition" "backend_despachos" {
   ])
 }
 
-resource "aws_ecs_service" "backend_despachos" {
-  name            = "despachos-service"
-  cluster         = aws_ecs_cluster.main.id
-  task_definition = aws_ecs_task_definition.backend_despachos.arn
+resource "aws_ecs_task_definition" "task_ventas" {
+  family                   = "ventas-task"
+  network_mode             = "awsvpc"
+  requires_compatibilities = ["FARGATE"]
+  cpu                      = "1024"
+  memory                   = "2048"
+  execution_role_arn       = data.aws_iam_role.lab_role.arn
+  task_role_arn            = data.aws_iam_role.lab_role.arn
+
+  container_definitions = jsonencode([
+    {
+      name      = "mysql-ventas"
+      image     = "mysql:8.0"
+      essential = true
+      portMappings = [{ containerPort = 3306, hostPort = 3306, protocol = "tcp" }]
+      environment = [
+        { name = "MYSQL_ROOT_PASSWORD", value = "rootpass123" },
+        { name = "MYSQL_DATABASE",      value = "ventas_db" },
+        { name = "MYSQL_USER",          value = "ventas_user" },
+        { name = "MYSQL_PASSWORD",      value = "ventas_pass123" }
+      ]
+      healthCheck = {
+        command     = ["CMD-SHELL", "mysqladmin ping -h localhost -uroot -prootpass123 || exit 1"]
+        interval    = 30
+        timeout     = 5
+        retries     = 5
+        startPeriod = 40
+      }
+      logConfiguration = {
+        logDriver = "awslogs"
+        options = {
+          "awslogs-group"         = "/ecs/innovatech-mysql-ventas"
+          "awslogs-region"        = "us-east-1"
+          "awslogs-stream-prefix" = "mysql-ventas"
+        }
+      }
+    },
+    {
+      name      = "ventas-container"
+      image     = "${data.aws_caller_identity.current.account_id}.dkr.ecr.us-east-1.amazonaws.com/innovatech-backend-ventas:latest"
+      essential = true
+      portMappings = [{ containerPort = 8080, hostPort = 8080, protocol = "tcp" }]
+      environment = [
+        { name = "DB_ENDPOINT", value = "127.0.0.1" },
+        { name = "DB_PORT",     value = "3306" },
+        { name = "DB_NAME",     value = "ventas_db" },
+        { name = "DB_USERNAME", value = "ventas_user" },
+        { name = "DB_PASSWORD", value = "ventas_pass123" },
+        { name = "SPRING_PROFILES_ACTIVE",     value = "prod" },
+        { name = "SPRING_DATASOURCE_URL",      value = "jdbc:mysql://127.0.0.1:3306/ventas_db?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC" },
+        { name = "SPRING_DATASOURCE_USERNAME", value = "ventas_user" },
+        { name = "SPRING_DATASOURCE_PASSWORD", value = "ventas_pass123" }
+      ]
+      dependsOn = [{ containerName = "mysql-ventas", condition = "HEALTHY" }]
+      logConfiguration = {
+        logDriver = "awslogs"
+        options = {
+          "awslogs-group"         = "/ecs/innovatech-ventas"
+          "awslogs-region"        = "us-east-1"
+          "awslogs-stream-prefix" = "ventas"
+        }
+      }
+    }
+  ])
+}
+
+resource "aws_ecs_service" "svc_frontend" {
+  name            = "frontend-service"
+  cluster         = aws_ecs_cluster.innovatech_cluster.id
+  task_definition = aws_ecs_task_definition.task_frontend.arn
   desired_count   = 1
-  depends_on      = [aws_ecs_cluster_capacity_providers.main]
+  launch_type     = "FARGATE"
+
+  network_configuration {
+    subnets          = [aws_subnet.public.id]
+    security_groups  = [aws_security_group.ecs_tasks.id]
+    assign_public_ip = true
+  }
+}
+
+resource "aws_ecs_service" "svc_despachos" {
+  name            = "despachos-service"
+  cluster         = aws_ecs_cluster.innovatech_cluster.id
+  task_definition = aws_ecs_task_definition.task_despachos.arn
+  desired_count   = 1
+  launch_type     = "FARGATE"
+
+  network_configuration {
+    subnets          = [aws_subnet.public.id]
+    security_groups  = [aws_security_group.ecs_tasks.id]
+    assign_public_ip = true
+  }
+}
+
+resource "aws_ecs_service" "svc_ventas" {
+  name            = "ventas-service"
+  cluster         = aws_ecs_cluster.innovatech_cluster.id
+  task_definition = aws_ecs_task_definition.task_ventas.arn
+  desired_count   = 1
+  launch_type     = "FARGATE"
+
+  network_configuration {
+    subnets          = [aws_subnet.public.id]
+    security_groups  = [aws_security_group.ecs_tasks.id]
+    assign_public_ip = true
+  }
 }
