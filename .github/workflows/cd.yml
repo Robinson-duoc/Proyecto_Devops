@@ -1,51 +1,311 @@
-name: CD - Deploy a ECS
-
+name: CI/CD - Frontend, Despachos y Ventas
+ 
+# ============================================================
+# Trigger: Se activa con push en main cuando cambian
+# archivos en las carpetas de frontend, despachos o ventas
+# ============================================================
 on:
-  workflow_run:
-    workflows: ["CI - Build y Push a ECR"]
-    types:
-      - completed
+  push:
     branches:
       - main
-
+    paths:
+      - 'front_despacho/**'
+      - 'Springboot-API-REST-DESPACHO/**'
+      - 'back-Ventas_SpringBoot/**'
+ 
 env:
   AWS_REGION: us-east-1
-  ECS_CLUSTER: innovatech-spa-cluster
-
+  CLUSTER: innovatech-cluster
+ 
 jobs:
-  deploy:
-    name: Deploy a ECS
+  # ============================================================
+  # JOB 1: Detectar qué servicios cambiaron
+  # ============================================================
+  detect-changes:
+    name: Detectar cambios en servicios
     runs-on: ubuntu-latest
-    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    outputs:
+      frontend: ${{ steps.changes.outputs.frontend }}
+      despachos: ${{ steps.changes.outputs.despachos }}
+      ventas: ${{ steps.changes.outputs.ventas }}
+ 
     steps:
-      - name: Configurar credenciales AWS
-        uses: aws-actions/configure-aws-credentials@v4
+      - name: Checkout del código
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+ 
+      - name: Detectar cambios en archivos
+        id: changes
+        run: |
+          if git diff --name-only HEAD~1 HEAD | grep -q "^front_despacho/"; then
+            echo "frontend=true" >> $GITHUB_OUTPUT
+          else
+            echo "frontend=false" >> $GITHUB_OUTPUT
+          fi
+          
+          if git diff --name-only HEAD~1 HEAD | grep -q "^Springboot-API-REST-DESPACHO/"; then
+            echo "despachos=true" >> $GITHUB_OUTPUT
+          else
+            echo "despachos=false" >> $GITHUB_OUTPUT
+          fi
+          
+          if git diff --name-only HEAD~1 HEAD | grep -q "^back-Ventas_SpringBoot/"; then
+            echo "ventas=true" >> $GITHUB_OUTPUT
+          else
+            echo "ventas=false" >> $GITHUB_OUTPUT
+          fi
+ 
+  # ============================================================
+  # JOB 2: Build y Push Frontend
+  # ============================================================
+  build-frontend:
+    name: Build y Push Frontend
+    runs-on: ubuntu-latest
+    needs: detect-changes
+    if: needs.detect-changes.outputs.frontend == 'true'
+ 
+    steps:
+      - name: Checkout del código
+        uses: actions/checkout@v4
+ 
+      - name: Configurar credenciales de AWS
+        uses: aws-actions/configure-aws-credentials@v2
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
           aws-region: ${{ env.AWS_REGION }}
-
-      - name: Deploy Frontend
+ 
+      - name: Login en ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+ 
+      - name: Build imagen Frontend
+        run: |
+          docker build --platform linux/amd64 \
+          -t ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/innovatech-frontend:latest \
+          -t ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/innovatech-frontend:${{ github.sha }} \
+          ./front_despacho
+ 
+      - name: Push imagen Frontend a ECR
+        run: |
+          docker push ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/innovatech-frontend:latest
+          docker push ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/innovatech-frontend:${{ github.sha }}
+ 
+      - name: Notificar build exitoso
+        run: |
+          echo " Frontend build completado"
+          echo "Imagen: innovatech-frontend:${{ github.sha }}"
+ 
+  # ============================================================
+  # JOB 3: Build y Push Despachos
+  # ============================================================
+  build-despachos:
+    name: Build y Push Despachos
+    runs-on: ubuntu-latest
+    needs: detect-changes
+    if: needs.detect-changes.outputs.despachos == 'true'
+ 
+    steps:
+      - name: Checkout del código
+        uses: actions/checkout@v4
+ 
+      - name: Configurar credenciales de AWS
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: ${{ env.AWS_REGION }}
+ 
+      - name: Login en ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+ 
+      - name: Build imagen Despachos
+        run: |
+          docker build --platform linux/amd64 \
+          -t ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/innovatech-backend-despachos:latest \
+          -t ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/innovatech-backend-despachos:${{ github.sha }} \
+          ./Springboot-API-REST-DESPACHO
+ 
+      - name: Push imagen Despachos a ECR
+        run: |
+          docker push ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/innovatech-backend-despachos:latest
+          docker push ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/innovatech-backend-despachos:${{ github.sha }}
+ 
+      - name: Notificar build exitoso
+        run: |
+          echo "Despachos build completado"
+          echo "Imagen: innovatech-backend-despachos:${{ github.sha }}"
+ 
+  # ============================================================
+  # JOB 4: Build y Push Ventas
+  # ============================================================
+  build-ventas:
+    name: Build y Push Ventas
+    runs-on: ubuntu-latest
+    needs: detect-changes
+    if: needs.detect-changes.outputs.ventas == 'true'
+ 
+    steps:
+      - name: Checkout del código
+        uses: actions/checkout@v4
+ 
+      - name: Configurar credenciales de AWS
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: ${{ env.AWS_REGION }}
+ 
+      - name: Login en ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+ 
+      - name: Build imagen Ventas
+        run: |
+          docker build --platform linux/amd64 \
+          -t ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/innovatech-backend-ventas:latest \
+          -t ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/innovatech-backend-ventas:${{ github.sha }} \
+          ./back-Ventas_SpringBoot
+ 
+      - name: Push imagen Ventas a ECR
+        run: |
+          docker push ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/innovatech-backend-ventas:latest
+          docker push ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/innovatech-backend-ventas:${{ github.sha }}
+ 
+      - name: Notificar build exitoso
+        run: |
+          echo "✅ Ventas build completado"
+          echo "Imagen: innovatech-backend-ventas:${{ github.sha }}"
+ 
+  # ============================================================
+  # JOB 5: Deploy Frontend a ECS
+  # ============================================================
+  deploy-frontend:
+    name: Deploy Frontend a ECS
+    runs-on: ubuntu-latest
+    needs: build-frontend
+    if: always() && needs.build-frontend.result == 'success'
+ 
+    steps:
+      - name: Configurar credenciales de AWS
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: ${{ env.AWS_REGION }}
+ 
+      - name: Actualizar servicio Frontend en ECS
         run: |
           aws ecs update-service \
-            --cluster $ECS_CLUSTER \
-            --service innovatech-spa-frontend-service \
-            --force-new-deployment \
-            --region $AWS_REGION
-
-      - name: Deploy Backend Ventas
+          --cluster ${{ env.CLUSTER }} \
+          --service frontend-service \
+          --force-new-deployment \
+          --region ${{ env.AWS_REGION }}
+ 
+      - name: Esperar a que se estabilice el servicio
+        run: |
+          aws ecs wait services-stable \
+          --cluster ${{ env.CLUSTER }} \
+          --services frontend-service \
+          --region ${{ env.AWS_REGION }}
+ 
+      - name: Frontend desplegado exitosamente
+        run: echo "Frontend desplegado en ECS"
+ 
+  # ============================================================
+  # JOB 6: Deploy Despachos a ECS
+  # ============================================================
+  deploy-despachos:
+    name: Deploy Despachos a ECS
+    runs-on: ubuntu-latest
+    needs: build-despachos
+    if: always() && needs.build-despachos.result == 'success'
+ 
+    steps:
+      - name: Configurar credenciales de AWS
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: ${{ env.AWS_REGION }}
+ 
+      - name: Actualizar servicio Despachos en ECS
         run: |
           aws ecs update-service \
-            --cluster $ECS_CLUSTER \
-            --service innovatech-spa-backend-ventas-service \
-            --force-new-deployment \
-            --region $AWS_REGION
-
-      - name: Deploy Backend Despacho
+          --cluster ${{ env.CLUSTER }} \
+          --service despachos-service \
+          --force-new-deployment \
+          --region ${{ env.AWS_REGION }}
+ 
+      - name: Esperar a que se estabilice el servicio
+        run: |
+          aws ecs wait services-stable \
+          --cluster ${{ env.CLUSTER }} \
+          --services despachos-service \
+          --region ${{ env.AWS_REGION }}
+ 
+      - name: Despachos desplegado exitosamente
+        run: echo "Despachos desplegado en ECS"
+ 
+  # ============================================================
+  # JOB 7: Deploy Ventas a ECS
+  # ============================================================
+  deploy-ventas:
+    name: Deploy Ventas a ECS
+    runs-on: ubuntu-latest
+    needs: build-ventas
+    if: always() && needs.build-ventas.result == 'success'
+ 
+    steps:
+      - name: Configurar credenciales de AWS
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: ${{ env.AWS_REGION }}
+ 
+      - name: Actualizar servicio Ventas en ECS
         run: |
           aws ecs update-service \
-            --cluster $ECS_CLUSTER \
-            --service innovatech-spa-backend-despacho-service \
-            --force-new-deployment \
-            --region $AWS_REGION
+          --cluster ${{ env.CLUSTER }} \
+          --service ventas-service \
+          --force-new-deployment \
+          --region ${{ env.AWS_REGION }}
+ 
+      - name: Esperar a que se estabilice el servicio
+        run: |
+          aws ecs wait services-stable \
+          --cluster ${{ env.CLUSTER }} \
+          --services ventas-service \
+          --region ${{ env.AWS_REGION }}
+ 
+      - name: Ventas desplegado exitosamente
+        run: echo "Ventas desplegado en ECS"
+ 
+  # ============================================================
+  # JOB 8: Resumen final
+  # ============================================================
+  summary:
+    name: Resumen de despliegue
+    runs-on: ubuntu-latest
+    needs: [deploy-frontend, deploy-despachos, deploy-ventas]
+    if: always()
+ 
+    steps:
+      - name: Resumen de CI/CD
+        run: |
+          echo "=========================================="
+          echo "Pipeline de CI/CD completado"
+          echo "=========================================="
+          echo "Frontend:   ${{ needs.deploy-frontend.result }}"
+          echo "Despachos:  ${{ needs.deploy-despachos.result }}"
+          echo "Ventas:     ${{ needs.deploy-ventas.result }}"
+          echo "=========================================="
